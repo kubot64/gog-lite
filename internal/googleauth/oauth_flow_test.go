@@ -1,7 +1,13 @@
 package googleauth
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
+
+	"golang.org/x/oauth2"
 )
 
 func TestParseRedirectURL_Valid(t *testing.T) {
@@ -142,4 +148,86 @@ func TestScopesEqual_False(t *testing.T) {
 			t.Errorf("scopesEqual(%v, %v) = true, want false", tt.a, tt.b)
 		}
 	}
+}
+
+func TestEmailFromToken_Valid(t *testing.T) {
+	idToken := makeIDToken(t, map[string]any{"email": "you@example.com"})
+	tok := (&oauth2.Token{}).WithExtra(map[string]any{"id_token": idToken})
+
+	email, err := emailFromToken(tok)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if email != "you@example.com" {
+		t.Fatalf("email = %q, want %q", email, "you@example.com")
+	}
+}
+
+func TestEmailFromToken_MissingIDToken(t *testing.T) {
+	_, err := emailFromToken((&oauth2.Token{}).WithExtra(map[string]any{}))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestEmailFromToken_InvalidToken(t *testing.T) {
+	tok := (&oauth2.Token{}).WithExtra(map[string]any{"id_token": "not-a-jwt"})
+	_, err := emailFromToken(tok)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestLoadManualStateByState_Match(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	st := manualState{
+		State:       "state-1",
+		RedirectURI: "http://127.0.0.1:1234/oauth2/callback",
+		Scopes:      []string{"a", "b"},
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := saveManualState(st); err != nil {
+		t.Fatalf("saveManualState: %v", err)
+	}
+
+	got, ok, err := loadManualStateByState("state-1", []string{"b", "a"})
+	if err != nil {
+		t.Fatalf("loadManualStateByState: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if got.RedirectURI != st.RedirectURI {
+		t.Fatalf("redirectURI = %q, want %q", got.RedirectURI, st.RedirectURI)
+	}
+}
+
+func TestLoadManualStateByState_NotFound(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	_, ok, err := loadManualStateByState("missing", []string{"a"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Fatal("expected ok=false")
+	}
+}
+
+func makeIDToken(t *testing.T, payload map[string]any) string {
+	t.Helper()
+
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	b, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	body := base64.RawURLEncoding.EncodeToString(b)
+
+	return fmt.Sprintf("%s.%s.signature", header, body)
 }

@@ -32,6 +32,7 @@ type AuthLoginCmd struct {
 }
 
 func (c *AuthLoginCmd) Run(ctx context.Context, _ *RootFlags) error {
+	account := normalizeEmail(c.Account)
 	services, err := parseServices(c.Services)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "invalid_services", err.Error())
@@ -63,6 +64,14 @@ func (c *AuthLoginCmd) Run(ctx context.Context, _ *RootFlags) error {
 		if err != nil {
 			return output.WriteError(output.ExitCodeError, "auth_exchange_error", err.Error())
 		}
+		tokenEmail := normalizeEmail(result.Email)
+		if tokenEmail == "" || tokenEmail != account {
+			return output.WriteError(
+				output.ExitCodeError,
+				"account_mismatch",
+				fmt.Sprintf("--account %q does not match authorized account %q", c.Account, result.Email),
+			)
+		}
 
 		store, err := secrets.OpenDefault()
 		if err != nil {
@@ -75,19 +84,19 @@ func (c *AuthLoginCmd) Run(ctx context.Context, _ *RootFlags) error {
 		}
 
 		tok := secrets.Token{
-			Email:        c.Account,
+			Email:        account,
 			Services:     serviceNames,
 			Scopes:       scopes,
 			RefreshToken: result.RefreshToken,
 		}
 
-		if err := store.SetToken(c.Account, tok); err != nil {
+		if err := store.SetToken(account, tok); err != nil {
 			return output.WriteError(output.ExitCodeError, "store_token_error", err.Error())
 		}
 
 		return output.WriteJSON(os.Stdout, map[string]any{
 			"stored":   true,
-			"email":    c.Account,
+			"email":    account,
 			"services": serviceNames,
 		})
 	}
@@ -102,6 +111,10 @@ func (c *AuthLoginCmd) Run(ctx context.Context, _ *RootFlags) error {
 		"auth_url":  step1.AuthURL,
 		"next_step": step1.NextStep,
 	})
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // AuthListCmd lists all authenticated accounts.

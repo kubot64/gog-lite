@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -110,12 +109,12 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 	body := c.Body
 
 	if c.BodyStdin {
-		b, err := io.ReadAll(os.Stdin)
+		s, err := readStdinWithLimit(maxStdinBytes)
 		if err != nil {
 			return output.WriteError(output.ExitCodeError, "stdin_error", fmt.Sprintf("read stdin: %v", err))
 		}
 
-		body = string(b)
+		body = s
 	}
 
 	for _, hv := range []struct {

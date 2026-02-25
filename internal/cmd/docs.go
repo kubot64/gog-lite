@@ -96,12 +96,12 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 	content := c.Content
 
 	if c.ContentStdin {
-		b, err := io.ReadAll(os.Stdin)
+		s, err := readStdinWithLimit(maxStdinBytes)
 		if err != nil {
 			return output.WriteError(output.ExitCodeError, "stdin_error", fmt.Sprintf("read stdin: %v", err))
 		}
 
-		content = string(b)
+		content = s
 	}
 
 	docSvc, err := googleapi.NewDocs(ctx, c.Account)
@@ -210,12 +210,12 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	content := c.Content
 
 	if c.ContentStdin {
-		b, err := io.ReadAll(os.Stdin)
+		s, err := readStdinWithLimit(maxStdinBytes)
 		if err != nil {
 			return output.WriteError(output.ExitCodeError, "stdin_error", fmt.Sprintf("read stdin: %v", err))
 		}
 
-		content = string(b)
+		content = s
 	}
 
 	dryRun := root.DryRun
