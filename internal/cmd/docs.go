@@ -66,13 +66,7 @@ func (c *DocsCatCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return writeGoogleAPIError("docs_cat_error", err)
 	}
 
-	text := docsPlainText(doc)
-	truncated := false
-
-	if c.MaxBytes > 0 && len(text) > c.MaxBytes {
-		text = text[:c.MaxBytes]
-		truncated = true
-	}
+	text, truncated := truncateText(docsPlainText(doc), c.MaxBytes)
 
 	return output.WriteJSON(os.Stdout, map[string]any{
 		"id":        doc.DocumentId,
@@ -80,6 +74,14 @@ func (c *DocsCatCmd) Run(ctx context.Context, _ *RootFlags) error {
 		"content":   text,
 		"truncated": truncated,
 	})
+}
+
+func truncateText(text string, maxBytes int) (string, bool) {
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text, false
+	}
+
+	return text[:maxBytes], true
 }
 
 // DocsCreateCmd creates a new document.

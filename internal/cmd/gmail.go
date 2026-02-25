@@ -118,6 +118,21 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 		body = string(b)
 	}
 
+	for _, hv := range []struct {
+		name  string
+		value string
+	}{
+		{name: "account", value: c.Account},
+		{name: "to", value: c.To},
+		{name: "cc", value: c.CC},
+		{name: "bcc", value: c.BCC},
+		{name: "subject", value: c.Subject},
+	} {
+		if err := validateHeaderValue(hv.name, hv.value); err != nil {
+			return output.WriteError(output.ExitCodeError, "invalid_header", err.Error())
+		}
+	}
+
 	svc, err := googleapi.NewGmail(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
@@ -152,6 +167,14 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 		"thread_id": msg.ThreadId,
 		"sent":      true,
 	})
+}
+
+func validateHeaderValue(name, value string) error {
+	if strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("%s must not contain CR or LF characters", name)
+	}
+
+	return nil
 }
 
 // GmailThreadCmd fetches a Gmail thread.
