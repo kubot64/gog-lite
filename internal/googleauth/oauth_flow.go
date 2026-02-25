@@ -23,7 +23,9 @@ import (
 
 var (
 	errMissingCode        = errors.New("missing authorization code")
+	errMissingState       = errors.New("missing state in redirect URL")
 	errNoCodeInURL        = errors.New("no code found in URL")
+	errNoEmailInToken     = errors.New("no email claim found in token")
 	errNoRefreshToken     = errors.New("no refresh token received; try again with --force-consent")
 	errInvalidRedirectURL = errors.New("invalid redirect URL")
 	errMissingScopes      = errors.New("missing scopes")
@@ -47,6 +49,7 @@ type Step1Result struct {
 // Step2Result is returned after successfully exchanging the code.
 type Step2Result struct {
 	RefreshToken string
+	Email        string
 }
 
 // manualState stores OAuth state between step 1 and step 2.
@@ -155,6 +158,49 @@ func loadManualState(scopes []string) (manualState, bool, error) {
 	}
 
 	return manualState{}, false, nil
+}
+
+func loadManualStateByState(state string, scopes []string) (manualState, bool, error) {
+	if strings.TrimSpace(state) == "" {
+		return manualState{}, false, nil
+	}
+
+	path, err := manualStatePath(state)
+	if err != nil {
+		return manualState{}, false, err
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec
+	if err != nil {
+		if os.IsNotExist(err) {
+			return manualState{}, false, nil
+		}
+
+		return manualState{}, false, fmt.Errorf("read manual auth state: %w", err)
+	}
+
+	var st manualState
+	if err := json.Unmarshal(data, &st); err != nil {
+		_ = os.Remove(path)
+		return manualState{}, false, nil
+	}
+
+	if st.State == "" || st.RedirectURI == "" {
+		_ = os.Remove(path)
+		return manualState{}, false, nil
+	}
+
+	if time.Since(st.CreatedAt) > manualStateTTL {
+		_ = os.Remove(path)
+		return manualState{}, false, nil
+	}
+
+	normalizedScopes := normalizeScopes(scopes)
+	if !scopesEqual(st.Scopes, normalizedScopes) {
+		return manualState{}, false, nil
+	}
+
+	return st, true, nil
 }
 
 func clearManualState(state string) error {
@@ -302,25 +348,30 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step2Result{}, errMissingScopes
 	}
 
-	code, _, redirectURI, err := parseRedirectURL(redirectURLFromBrowser)
+	code, state, redirectURI, err := parseRedirectURL(redirectURLFromBrowser)
 	if err != nil {
 		return Step2Result{}, err
+	}
+	if strings.TrimSpace(state) == "" {
+		return Step2Result{}, errMissingState
 	}
 
 	scopes := normalizeScopes(opts.Scopes)
 
-	// Load saved state to get the redirect URI we registered.
-	var storedRedirectURI string
-
-	if st, ok, loadErr := loadManualState(scopes); loadErr == nil && ok {
-		storedRedirectURI = st.RedirectURI
-		// Clean up state file after successful load.
-		defer func() { _ = clearManualState(st.State) }()
+	st, ok, err := loadManualStateByState(state, scopes)
+	if err != nil {
+		return Step2Result{}, err
+	}
+	if !ok {
+		return Step2Result{}, fmt.Errorf("state mismatch or expired state; run step 1 again")
 	}
 
+	// Clean up state file after successful load.
+	defer func() { _ = clearManualState(st.State) }()
+
 	// Use stored redirect URI if available (more reliable), otherwise use parsed one.
-	if storedRedirectURI != "" {
-		redirectURI = storedRedirectURI
+	if st.RedirectURI != "" {
+		redirectURI = st.RedirectURI
 	}
 
 	if redirectURI == "" {
@@ -344,7 +395,50 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step2Result{}, errNoRefreshToken
 	}
 
-	return Step2Result{RefreshToken: tok.RefreshToken}, nil
+	email, err := emailFromToken(tok)
+	if err != nil {
+		return Step2Result{}, fmt.Errorf("extract email from token: %w", err)
+	}
+
+	return Step2Result{
+		RefreshToken: tok.RefreshToken,
+		Email:        email,
+	}, nil
+}
+
+func emailFromToken(tok *oauth2.Token) (string, error) {
+	if tok == nil {
+		return "", errNoEmailInToken
+	}
+
+	raw, _ := tok.Extra("id_token").(string)
+	if strings.TrimSpace(raw) == "" {
+		return "", errNoEmailInToken
+	}
+
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return "", errNoEmailInToken
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", errNoEmailInToken
+	}
+
+	var claims struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", errNoEmailInToken
+	}
+
+	email := strings.TrimSpace(claims.Email)
+	if email == "" {
+		return "", errNoEmailInToken
+	}
+
+	return email, nil
 }
 
 func normalizeScopes(scopes []string) []string {
