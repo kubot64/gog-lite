@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -25,13 +27,17 @@ var (
 	errMissingCode        = errors.New("missing authorization code")
 	errMissingState       = errors.New("missing state in redirect URL")
 	errNoCodeInURL        = errors.New("no code found in URL")
-	errNoEmailInToken     = errors.New("no email claim found in token")
+	errNoEmailInToken     = errors.New("no email found in userinfo")
+	errEmailNotVerified   = errors.New("userinfo email is not verified")
 	errNoRefreshToken     = errors.New("no refresh token received; try again with --force-consent")
 	errInvalidRedirectURL = errors.New("invalid redirect URL")
 	errMissingScopes      = errors.New("missing scopes")
 )
 
 var oauthEndpoint = google.Endpoint
+var oauthUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo"
+
+const oauthUserInfoBodyLimit = 1 << 20
 
 // AuthorizeOptions configures a 2-step headless OAuth flow.
 type AuthorizeOptions struct {
@@ -395,9 +401,9 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step2Result{}, errNoRefreshToken
 	}
 
-	email, err := emailFromToken(tok)
+	email, err := emailFromUserInfo(ctx, tok)
 	if err != nil {
-		return Step2Result{}, fmt.Errorf("extract email from token: %w", err)
+		return Step2Result{}, fmt.Errorf("extract email from userinfo: %w", err)
 	}
 
 	return Step2Result{
@@ -406,36 +412,48 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 	}, nil
 }
 
-func emailFromToken(tok *oauth2.Token) (string, error) {
+func emailFromUserInfo(ctx context.Context, tok *oauth2.Token) (string, error) {
 	if tok == nil {
 		return "", errNoEmailInToken
 	}
 
-	raw, _ := tok.Extra("id_token").(string)
-	if strings.TrimSpace(raw) == "" {
+	accessToken := strings.TrimSpace(tok.AccessToken)
+	if accessToken == "" {
 		return "", errNoEmailInToken
 	}
 
-	parts := strings.Split(raw, ".")
-	if len(parts) != 3 {
-		return "", errNoEmailInToken
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, oauthUserInfoEndpoint, nil)
 	if err != nil {
-		return "", errNoEmailInToken
+		return "", fmt.Errorf("build userinfo request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request userinfo: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, oauthUserInfoBodyLimit))
+		return "", fmt.Errorf("userinfo status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var claims struct {
 		Email string `json:"email"`
+		// Google returns this field in OpenID userinfo response.
+		EmailVerified bool `json:"email_verified"`
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, oauthUserInfoBodyLimit)).Decode(&claims); err != nil {
 		return "", errNoEmailInToken
 	}
 
 	email := strings.TrimSpace(claims.Email)
 	if email == "" {
 		return "", errNoEmailInToken
+	}
+	if !claims.EmailVerified {
+		return "", errEmailNotVerified
 	}
 
 	return email, nil
