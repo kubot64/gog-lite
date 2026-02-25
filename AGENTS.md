@@ -371,14 +371,21 @@ generate_text | gog-lite docs write \
 
 | 変数 | 説明 |
 |------|------|
+| `GOG_LITE_CLIENT_ID` | OAuth クライアント ID（credentials.json より優先） |
+| `GOG_LITE_CLIENT_SECRET` | OAuth クライアントシークレット（credentials.json より優先） |
 | `GOG_LITE_KEYRING_BACKEND` | `keychain`（macOS）/ `file`（ヘッドレス） |
 | `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンド使用時のパスワード |
 
-ヘッドレス環境（Docker/CI）では：
+ヘッドレス環境（Docker/CI）での完全な設定：
 ```bash
+export GOG_LITE_CLIENT_ID=xxxx.apps.googleusercontent.com
+export GOG_LITE_CLIENT_SECRET=GOCSPX-xxxx
 export GOG_LITE_KEYRING_BACKEND=file
 export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 ```
+
+`GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の**両方**が設定されている場合、credentials.json は参照されない。
+片方のみの場合はファイルにフォールバックする。
 
 ---
 

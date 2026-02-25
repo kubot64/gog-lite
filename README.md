@@ -166,12 +166,23 @@ gog-lite docs cat --account you@gmail.com --doc-id DOC_ID | jq -r .content
 
 ## ヘッドレス環境（Docker/CI）
 
-macOS Keychain が使えない環境では、ファイルバックエンドを使用：
+credentials.json のマウントなしで環境変数だけで動かせる：
 
 ```bash
+export GOG_LITE_CLIENT_ID=xxxx.apps.googleusercontent.com
+export GOG_LITE_CLIENT_SECRET=GOCSPX-xxxx
 export GOG_LITE_KEYRING_BACKEND=file
 export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 ```
+
+| 変数 | 説明 |
+|---|---|
+| `GOG_LITE_CLIENT_ID` | OAuth クライアント ID |
+| `GOG_LITE_CLIENT_SECRET` | OAuth クライアントシークレット |
+| `GOG_LITE_KEYRING_BACKEND` | `file` でファイルバックエンドを強制 |
+| `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード |
+
+`GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の両方が設定されている場合、credentials.json は不要。
 
 ## 対応サービスと必要スコープ
 

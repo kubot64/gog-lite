@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-const AppName = "gog-lite"
+const (
+	AppName        = "gog-lite"
+	clientIDEnvVar = "GOG_LITE_CLIENT_ID"     //nolint:gosec
+	clientSecretEnvVar = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
+)
 
 // File is the configuration stored at ~/.config/gog-lite/config.json.
 type File struct {
@@ -117,8 +122,16 @@ type googleCredentialsFile struct {
 	} `json:"web"`
 }
 
-// ReadCredentials reads the credentials.json file.
+// ReadCredentials reads OAuth client credentials.
+// Environment variables GOG_LITE_CLIENT_ID and GOG_LITE_CLIENT_SECRET take
+// precedence over credentials.json, enabling headless/container deployments.
 func ReadCredentials() (ClientCredentials, error) {
+	clientID := strings.TrimSpace(os.Getenv(clientIDEnvVar))
+	clientSecret := strings.TrimSpace(os.Getenv(clientSecretEnvVar))
+	if clientID != "" && clientSecret != "" {
+		return ClientCredentials{ClientID: clientID, ClientSecret: clientSecret}, nil
+	}
+
 	path, err := CredentialsPath()
 	if err != nil {
 		return ClientCredentials{}, err
