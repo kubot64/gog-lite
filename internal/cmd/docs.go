@@ -212,6 +212,9 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
+	if err := ensureWithinAllowedOutputDir(c.Output, root.AllowedOutputDir); err != nil {
+		return output.WriteError(output.ExitCodeError, "output_not_allowed", err.Error())
+	}
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "docs.export",

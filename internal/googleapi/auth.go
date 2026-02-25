@@ -80,7 +80,7 @@ func optionsForEmailWithScopes(
 		ClientID:     creds.ClientID,
 		ClientSecret: creds.ClientSecret,
 		Endpoint:     google.Endpoint,
-		Scopes:       scopes,
+		Scopes:       append([]string(nil), scopes...),
 	}
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: defaultHTTPTimeout})

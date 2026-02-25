@@ -12,6 +12,8 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 - **エラーはstderrにJSON** — `{"error": "...", "code": "..."}` 形式。stdoutと混在しない
 - **stdin対応** — `--body-stdin` / `--content-stdin` でパイプ渡し可能
 - **dry-run** — 書き込み系コマンドを `--dry-run`（`-n`）で確認できる
+- **監査ログ** — `--audit-log` で書き込み操作をJSONL記録
+- **出力先制限** — `--allowed-output-dir` でファイル出力先を制限
 
 ## インストール
 
@@ -126,7 +128,7 @@ gog-lite docs create --account you@gmail.com --title "新しいドキュメン�
 gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token TOKEN
 
 # エクスポート
-gog-lite docs export --account you@gmail.com --doc-id DOC_ID --format pdf --output ~/Downloads/doc.pdf
+gog-lite docs export --account you@gmail.com --doc-id DOC_ID --format pdf --output ~/Downloads/doc.pdf --overwrite
 
 # テキスト置換
 gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token TOKEN
@@ -186,15 +188,16 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 | `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード |
 
 `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の両方が設定されている場合、credentials.json は不要。
+`GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
 
 ## 対応サービスと必要スコープ
 
 | サービス | 有効化が必要なAPI | スコープ |
 |---------|-----------------|---------|
-| `gmail` | Gmail API | `gmail.modify`, `gmail.settings.basic` |
-| `calendar` | Google Calendar API | `calendar` |
-| `docs` | Docs API + Drive API | `documents`, `drive` |
-| `drive` | Google Drive API | `drive` |
+| `gmail` | Gmail API | `gmail.readonly`, `gmail.send`（操作に応じて最小権限） |
+| `calendar` | Google Calendar API | `calendar.readonly` / `calendar`（操作に応じて最小権限） |
+| `docs` | Docs API + Drive API | `documents.readonly` / `documents` / `drive.readonly`（操作に応じて最小権限） |
+| `drive` | Google Drive API | `drive.readonly` |
 
 ## AIエージェント向け詳細
 

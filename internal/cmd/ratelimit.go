@@ -21,6 +21,7 @@ func enforceRateLimit(action string, limit int, window time.Duration) error {
 	if limit <= 0 || window <= 0 {
 		return nil
 	}
+
 	action = strings.TrimSpace(action)
 	if action == "" {
 		return nil
@@ -38,6 +39,7 @@ func enforceRateLimit(action string, limit int, window time.Duration) error {
 
 	now := nowUTC()
 	cutoff := now.Add(-window)
+
 	kept := make([]string, 0, len(state.Timestamps)+1)
 	for _, ts := range state.Timestamps {
 		t, err := time.Parse(time.RFC3339, ts)
@@ -106,6 +108,7 @@ func saveRateLimitState(path string, st rateLimitState) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return fmt.Errorf("write rate limit state: %w", err)
 	}
+
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("commit rate limit state: %w", err)
 	}

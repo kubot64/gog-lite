@@ -75,6 +75,10 @@ type CalendarListCmd struct {
 }
 
 func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceRateLimit("calendar.list", 120, time.Minute); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	if err := validateRFC3339Optional("--from", c.From); err != nil {
 		return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
 	}

@@ -22,7 +22,7 @@ const (
 	scopeDriveReadonly    = "https://www.googleapis.com/auth/drive.readonly"
 )
 
-// Legacy constructors.
+// Legacy constructors — delegate to read-only variants for least privilege.
 func NewGmail(ctx context.Context, email string) (*gmail.Service, error) {
 	return NewGmailReadOnly(ctx, email)
 }
