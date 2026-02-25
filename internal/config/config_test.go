@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/config"
 )
 
 func TestReadCredentials_EnvVarsTakePrecedence(t *testing.T) {

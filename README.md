@@ -18,7 +18,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 ## インストール
 
 ```bash
-git clone https://github.com/morikubo-takashi/gog-lite
+git clone https://github.com/kubot64/gog-lite
 cd gog-lite
 go build -o ~/bin/gog-lite ./cmd/gog-lite/
 ```

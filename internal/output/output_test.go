@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/morikubo-takashi/gog-lite/internal/output"
+	"github.com/kubot64/gog-lite/internal/output"
 )
 
 func TestWriteJSON_NoHTMLEscape(t *testing.T) {

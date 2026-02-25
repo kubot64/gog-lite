@@ -13,9 +13,9 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
-	"github.com/morikubo-takashi/gog-lite/internal/googleauth"
-	"github.com/morikubo-takashi/gog-lite/internal/secrets"
+	"github.com/kubot64/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/googleauth"
+	"github.com/kubot64/gog-lite/internal/secrets"
 )
 
 const defaultHTTPTimeout = 30 * time.Second

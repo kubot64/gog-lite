@@ -9,7 +9,7 @@ import (
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/gmail/v1"
 
-	"github.com/morikubo-takashi/gog-lite/internal/googleauth"
+	"github.com/kubot64/gog-lite/internal/googleauth"
 )
 
 const (

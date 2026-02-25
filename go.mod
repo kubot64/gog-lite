@@ -1,4 +1,4 @@
-module github.com/morikubo-takashi/gog-lite
+module github.com/kubot64/gog-lite
 
 go 1.24.0
 

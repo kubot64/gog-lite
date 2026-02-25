@@ -12,7 +12,7 @@ import (
 	"github.com/99designs/keyring"
 	"golang.org/x/term"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/config"
 )
 
 const (

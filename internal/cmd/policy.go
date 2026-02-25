@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/config"
 )
 
 var defaultApprovalActions = []string{
