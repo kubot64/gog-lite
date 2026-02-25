@@ -132,3 +132,33 @@ func TestDocBodyLength_SingleElement(t *testing.T) {
 		t.Errorf("want 100, got %d", got)
 	}
 }
+
+func TestTruncateText_NoLimit(t *testing.T) {
+	got, truncated := truncateText("abcdef", 0)
+	if got != "abcdef" {
+		t.Errorf("got %q, want %q", got, "abcdef")
+	}
+	if truncated {
+		t.Error("expected truncated=false")
+	}
+}
+
+func TestTruncateText_ExactLimit(t *testing.T) {
+	got, truncated := truncateText("abcdef", 6)
+	if got != "abcdef" {
+		t.Errorf("got %q, want %q", got, "abcdef")
+	}
+	if truncated {
+		t.Error("expected truncated=false")
+	}
+}
+
+func TestTruncateText_OverLimit(t *testing.T) {
+	got, truncated := truncateText("abcdef", 4)
+	if got != "abcd" {
+		t.Errorf("got %q, want %q", got, "abcd")
+	}
+	if !truncated {
+		t.Error("expected truncated=true")
+	}
+}
