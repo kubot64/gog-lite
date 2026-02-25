@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/api/calendar/v3"
 
-	"github.com/morikubo-takashi/gog-lite/internal/output"
+	"github.com/kubot64/gog-lite/internal/output"
 )
 
 func TestValidateRFC3339_Valid(t *testing.T) {

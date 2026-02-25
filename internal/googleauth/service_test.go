@@ -3,7 +3,7 @@ package googleauth_test
 import (
 	"testing"
 
-	"github.com/morikubo-takashi/gog-lite/internal/googleauth"
+	"github.com/kubot64/gog-lite/internal/googleauth"
 )
 
 func TestParseService_Valid(t *testing.T) {

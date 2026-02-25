@@ -20,7 +20,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/config"
 )
 
 var (

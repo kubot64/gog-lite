@@ -11,8 +11,8 @@ import (
 
 	"google.golang.org/api/docs/v1"
 
-	"github.com/morikubo-takashi/gog-lite/internal/googleapi"
-	"github.com/morikubo-takashi/gog-lite/internal/output"
+	"github.com/kubot64/gog-lite/internal/googleapi"
+	"github.com/kubot64/gog-lite/internal/output"
 )
 
 // DocsCmd groups Docs subcommands.

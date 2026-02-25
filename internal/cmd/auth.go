@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
-	"github.com/morikubo-takashi/gog-lite/internal/googleauth"
-	"github.com/morikubo-takashi/gog-lite/internal/output"
-	"github.com/morikubo-takashi/gog-lite/internal/secrets"
+	"github.com/kubot64/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/googleauth"
+	"github.com/kubot64/gog-lite/internal/output"
+	"github.com/kubot64/gog-lite/internal/secrets"
 )
 
 // AuthCmd groups auth subcommands.

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/morikubo-takashi/gog-lite/internal/config"
-	"github.com/morikubo-takashi/gog-lite/internal/output"
-	"github.com/morikubo-takashi/gog-lite/internal/secrets"
+	"github.com/kubot64/gog-lite/internal/config"
+	"github.com/kubot64/gog-lite/internal/output"
+	"github.com/kubot64/gog-lite/internal/secrets"
 )
 
 // captureStderr redirects os.Stderr for the duration of fn and returns the captured output.

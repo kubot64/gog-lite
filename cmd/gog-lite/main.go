@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/morikubo-takashi/gog-lite/internal/cmd"
-	"github.com/morikubo-takashi/gog-lite/internal/output"
+	"github.com/kubot64/gog-lite/internal/cmd"
+	"github.com/kubot64/gog-lite/internal/output"
 )
 
 func main() {
