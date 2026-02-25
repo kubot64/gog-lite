@@ -45,7 +45,9 @@ func TestReadCredentials_PartialEnvVarFallsBackToFile(t *testing.T) {
 	// Only one env var set → must not use env vars, should fall back to file.
 	t.Setenv("GOG_LITE_CLIENT_ID", "only-id")
 	t.Setenv("GOG_LITE_CLIENT_SECRET", "")
-	t.Setenv("HOME", t.TempDir())
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome) // Linux: override XDG config home
 
 	// Use config.CredentialsPath() to find the platform-correct path.
 	credsPath, err := config.CredentialsPath()
@@ -71,7 +73,9 @@ func TestReadCredentials_PartialEnvVarFallsBackToFile(t *testing.T) {
 func TestReadCredentials_FileGoogleFormat(t *testing.T) {
 	t.Setenv("GOG_LITE_CLIENT_ID", "")
 	t.Setenv("GOG_LITE_CLIENT_SECRET", "")
-	t.Setenv("HOME", t.TempDir())
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome) // Linux: override XDG config home
 
 	credsPath, err := config.CredentialsPath()
 	if err != nil {
@@ -101,7 +105,9 @@ func TestReadCredentials_FileGoogleFormat(t *testing.T) {
 func TestReadCredentials_MissingFileError(t *testing.T) {
 	t.Setenv("GOG_LITE_CLIENT_ID", "")
 	t.Setenv("GOG_LITE_CLIENT_SECRET", "")
-	t.Setenv("HOME", t.TempDir())
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome) // Linux: override XDG config home
 
 	_, err := config.ReadCredentials()
 	if err == nil {
