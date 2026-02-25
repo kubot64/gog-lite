@@ -61,6 +61,9 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs \
 ```bash
 gog-lite auth list                        # 認証済みアカウント一覧
 gog-lite auth remove --account EMAIL      # アカウントのトークンを削除
+gog-lite auth preflight --account EMAIL --require-actions gmail.send,calendar.create
+gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
+gog-lite auth emergency-revoke --account EMAIL
 ```
 
 ### Gmail
@@ -104,7 +107,7 @@ gog-lite calendar create --account you@gmail.com \
 
 # イベントの更新・削除
 gog-lite calendar update --account you@gmail.com --event-id EVENT_ID --title "新しいタイトル"
-gog-lite calendar delete --account you@gmail.com --event-id EVENT_ID
+gog-lite calendar delete --account you@gmail.com --event-id EVENT_ID --confirm-delete --approval-token TOKEN
 ```
 
 > 時刻は RFC3339 形式でタイムゾーン必須：`2026-03-01T10:00:00Z` または `2026-03-01T10:00:00+09:00`
@@ -120,13 +123,13 @@ gog-lite docs cat  --account you@gmail.com --doc-id DOC_ID
 gog-lite docs create --account you@gmail.com --title "新しいドキュメント"
 
 # 内容の書き込み（--replace で全置換）
-gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace
+gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token TOKEN
 
 # エクスポート
 gog-lite docs export --account you@gmail.com --doc-id DOC_ID --format pdf --output ~/Downloads/doc.pdf
 
 # テキスト置換
-gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言"
+gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token TOKEN
 ```
 
 ## 出力例

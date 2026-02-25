@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"os"
 	"strings"
+	"time"
 
 	"google.golang.org/api/gmail/v1"
 
@@ -33,7 +34,11 @@ type GmailSearchCmd struct {
 }
 
 func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewGmail(ctx, c.Account)
+	if err := enforceRateLimit("gmail.search", 120, time.Minute); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -82,7 +87,7 @@ type GmailGetCmd struct {
 }
 
 func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewGmail(ctx, c.Account)
+	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -107,6 +112,10 @@ type GmailSendCmd struct {
 }
 
 func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "gmail.send"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	body := c.Body
 
 	if c.BodyStdin {
@@ -144,8 +153,11 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "invalid_recipient", err.Error())
 		}
 	}
+	if err := enforceRateLimit("gmail.send", 20, time.Minute); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
 
-	svc, err := googleapi.NewGmail(ctx, c.Account)
+	svc, err := googleapi.NewGmailWrite(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -221,7 +233,7 @@ type GmailThreadCmd struct {
 }
 
 func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewGmail(ctx, c.Account)
+	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -240,7 +252,7 @@ type GmailLabelsCmd struct {
 }
 
 func (c *GmailLabelsCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewGmail(ctx, c.Account)
+	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}

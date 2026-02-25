@@ -12,62 +12,82 @@ import (
 	"github.com/morikubo-takashi/gog-lite/internal/googleauth"
 )
 
-// NewGmail creates an authenticated Gmail service client.
+const (
+	scopeGmailReadonly    = "https://www.googleapis.com/auth/gmail.readonly"
+	scopeGmailSend        = "https://www.googleapis.com/auth/gmail.send"
+	scopeCalendarReadonly = "https://www.googleapis.com/auth/calendar.readonly"
+	scopeCalendarWrite    = "https://www.googleapis.com/auth/calendar"
+	scopeDocsReadonly     = "https://www.googleapis.com/auth/documents.readonly"
+	scopeDocsWrite        = "https://www.googleapis.com/auth/documents"
+	scopeDriveReadonly    = "https://www.googleapis.com/auth/drive.readonly"
+)
+
+// Legacy constructors.
 func NewGmail(ctx context.Context, email string) (*gmail.Service, error) {
-	opts, err := optionsForEmail(ctx, googleauth.ServiceGmail, email)
+	return NewGmailReadOnly(ctx, email)
+}
+func NewCalendar(ctx context.Context, email string) (*calendar.Service, error) {
+	return NewCalendarReadOnly(ctx, email)
+}
+func NewDocs(ctx context.Context, email string) (*docs.Service, error) {
+	return NewDocsReadOnly(ctx, email)
+}
+func NewDrive(ctx context.Context, email string) (*drive.Service, error) {
+	return NewDriveReadOnly(ctx, email)
+}
+
+func NewGmailReadOnly(ctx context.Context, email string) (*gmail.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceGmail), email, []string{scopeGmailReadonly})
 	if err != nil {
 		return nil, fmt.Errorf("gmail options: %w", err)
 	}
-
-	svc, err := gmail.NewService(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create gmail service: %w", err)
-	}
-
-	return svc, nil
+	return gmail.NewService(ctx, opts...)
 }
 
-// NewCalendar creates an authenticated Calendar service client.
-func NewCalendar(ctx context.Context, email string) (*calendar.Service, error) {
-	opts, err := optionsForEmail(ctx, googleauth.ServiceCalendar, email)
+func NewGmailWrite(ctx context.Context, email string) (*gmail.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceGmail), email, []string{scopeGmailSend})
+	if err != nil {
+		return nil, fmt.Errorf("gmail options: %w", err)
+	}
+	return gmail.NewService(ctx, opts...)
+}
+
+func NewCalendarReadOnly(ctx context.Context, email string) (*calendar.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceCalendar), email, []string{scopeCalendarReadonly})
 	if err != nil {
 		return nil, fmt.Errorf("calendar options: %w", err)
 	}
-
-	svc, err := calendar.NewService(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create calendar service: %w", err)
-	}
-
-	return svc, nil
+	return calendar.NewService(ctx, opts...)
 }
 
-// NewDocs creates an authenticated Docs service client.
-func NewDocs(ctx context.Context, email string) (*docs.Service, error) {
-	opts, err := optionsForEmail(ctx, googleauth.ServiceDocs, email)
+func NewCalendarWrite(ctx context.Context, email string) (*calendar.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceCalendar), email, []string{scopeCalendarWrite})
+	if err != nil {
+		return nil, fmt.Errorf("calendar options: %w", err)
+	}
+	return calendar.NewService(ctx, opts...)
+}
+
+func NewDocsReadOnly(ctx context.Context, email string) (*docs.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceDocs), email, []string{scopeDocsReadonly})
 	if err != nil {
 		return nil, fmt.Errorf("docs options: %w", err)
 	}
-
-	svc, err := docs.NewService(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create docs service: %w", err)
-	}
-
-	return svc, nil
+	return docs.NewService(ctx, opts...)
 }
 
-// NewDrive creates an authenticated Drive service client (used by docs commands).
-func NewDrive(ctx context.Context, email string) (*drive.Service, error) {
-	opts, err := optionsForEmail(ctx, googleauth.ServiceDocs, email)
+func NewDocsWrite(ctx context.Context, email string) (*docs.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceDocs), email, []string{scopeDocsWrite})
+	if err != nil {
+		return nil, fmt.Errorf("docs options: %w", err)
+	}
+	return docs.NewService(ctx, opts...)
+}
+
+func NewDriveReadOnly(ctx context.Context, email string) (*drive.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceDocs), email, []string{scopeDriveReadonly})
 	if err != nil {
 		return nil, fmt.Errorf("drive options: %w", err)
 	}
-
-	svc, err := drive.NewService(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create drive service: %w", err)
-	}
-
-	return svc, nil
+	return drive.NewService(ctx, opts...)
 }
