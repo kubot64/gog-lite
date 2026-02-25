@@ -14,6 +14,8 @@ AIエージェントが gog-lite を使う際に必要な情報をまとめた�
 | 認証 | ブラウザ不要。2ステップで URL → コード交換 |
 | `--account` | 各コマンドの必須フラグ（グローバルではない） |
 | `--dry-run` | グローバルフラグ。API呼び出しなしで実行内容を確認 |
+| `--audit-log` | グローバルフラグ。書き込み系操作の監査ログ(JSONL) |
+| `--allowed-output-dir` | グローバルフラグ。ファイル出力先ディレクトリ制限 |
 
 ---
 
@@ -221,7 +223,7 @@ gog-lite calendar update --account EMAIL --event-id ID \
 #### delete
 
 ```bash
-gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary]
+gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] [--confirm-delete]
 ```
 
 ```json
@@ -269,7 +271,7 @@ echo "初期内容" | gog-lite docs create --account EMAIL --title "新規ドキ
 #### export
 
 ```bash
-gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|html --output PATH
+gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|html --output PATH [--overwrite]
 ```
 
 ```json
@@ -279,7 +281,7 @@ gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|h
 #### write
 
 ```bash
-gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace]
+gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace]
 # --replace で既存内容をすべて置換
 cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-stdin --replace
 ```
@@ -287,7 +289,7 @@ cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-s
 #### find-replace
 
 ```bash
-gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case]
+gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] [--confirm-find-replace]
 ```
 
 ```json
@@ -386,6 +388,7 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 
 `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の**両方**が設定されている場合、credentials.json は参照されない。
 片方のみの場合はファイルにフォールバックする。
+`GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
 
 ---
 

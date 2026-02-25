@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"google.golang.org/api/docs/v1"
 
@@ -31,7 +32,7 @@ type DocsInfoCmd struct {
 }
 
 func (c *DocsInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewDocs(ctx, c.Account)
+	svc, err := googleapi.NewDocsReadOnly(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -57,7 +58,11 @@ type DocsCatCmd struct {
 }
 
 func (c *DocsCatCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewDocs(ctx, c.Account)
+	if err := enforceRateLimit("docs.cat", 120, time.Minute); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	svc, err := googleapi.NewDocsReadOnly(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -126,7 +131,7 @@ func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	docSvc, err := googleapi.NewDocs(ctx, c.Account)
+	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -196,6 +201,9 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
+	if err := ensureWithinAllowedOutputDir(c.Output, root.AllowedOutputDir); err != nil {
+		return output.WriteError(output.ExitCodeError, "output_not_allowed", err.Error())
+	}
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "docs.export",
@@ -218,7 +226,7 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	driveSvc, err := googleapi.NewDrive(ctx, c.Account)
+	driveSvc, err := googleapi.NewDriveReadOnly(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -302,7 +310,7 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	docSvc, err := googleapi.NewDocs(ctx, c.Account)
+	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -370,15 +378,20 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 
 // DocsFindReplaceCmd performs find-and-replace in a document.
 type DocsFindReplaceCmd struct {
-	Account   string `name:"account" required:"" short:"a" help:"Google account email."`
-	DocID     string `name:"doc-id" required:"" help:"Google Docs document ID."`
-	Find      string `name:"find" required:"" help:"Text to find."`
-	Replace   string `name:"replace" required:"" help:"Replacement text."`
-	MatchCase bool   `name:"match-case" help:"Case-sensitive matching."`
+	Account            string `name:"account" required:"" short:"a" help:"Google account email."`
+	DocID              string `name:"doc-id" required:"" help:"Google Docs document ID."`
+	Find               string `name:"find" required:"" help:"Text to find."`
+	Replace            string `name:"replace" required:"" help:"Replacement text."`
+	MatchCase          bool   `name:"match-case" help:"Case-sensitive matching."`
+	ConfirmFindReplace bool   `name:"confirm-find-replace" help:"Required confirmation flag for find-replace operations."`
 }
 
 func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
+	if !dryRun && !c.ConfirmFindReplace {
+		return output.WriteError(output.ExitCodeError, "find_replace_requires_confirmation",
+			"docs find-replace requires --confirm-find-replace")
+	}
 
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
@@ -402,7 +415,7 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	docSvc, err := googleapi.NewDocs(ctx, c.Account)
+	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -545,6 +558,31 @@ func writeFileAtomically(outputPath string, src io.Reader, overwrite bool) (int6
 	cleanupTmp = false
 
 	return written, nil
+}
+
+func ensureWithinAllowedOutputDir(outputPath, allowedDir string) error {
+	allowedDir = strings.TrimSpace(allowedDir)
+	if allowedDir == "" {
+		return nil
+	}
+
+	outAbs, err := filepath.Abs(outputPath)
+	if err != nil {
+		return fmt.Errorf("resolve output path: %w", err)
+	}
+	allowedAbs, err := filepath.Abs(allowedDir)
+	if err != nil {
+		return fmt.Errorf("resolve allowed output dir: %w", err)
+	}
+
+	if outAbs == allowedAbs {
+		return nil
+	}
+	if !strings.HasPrefix(outAbs, allowedAbs+string(os.PathSeparator)) {
+		return fmt.Errorf("output path must be under %s", allowedAbs)
+	}
+
+	return nil
 }
 
 func docsAuthError(err error) error {
