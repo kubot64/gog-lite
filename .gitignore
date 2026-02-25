@@ -1,0 +1,37 @@
+# Build output
+gog-lite
+/bin/
+dist/
+
+# Go
+vendor/
+*.test
+coverage.out
+*.out
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+.env
+.env.*
+
+# Google OAuth credentials (never commit these)
+credentials.json
+client_secret_*.json
+
+# Runtime data (should live in ~/.config/gog-lite/, not the repo)
+audit.log
+*.log
+policy.json
+ratelimit/
+approvals/
