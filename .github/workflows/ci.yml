@@ -59,13 +59,15 @@ jobs:
         run: |
           export HOME=$(mktemp -d)
           export XDG_CONFIG_HOME="$HOME"
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x 2>/tmp/err.json && code=0 || code=$?
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x 2>"$err_json" && code=0 || code=$?
           echo "exit code: $code"
-          cat /tmp/err.json
+          cat "$err_json"
           [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
           python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'delete_requires_confirmation', f\"got code {d['code']}\"
           print('confirm-delete: OK')
           "
@@ -73,13 +75,15 @@ jobs:
         run: |
           export HOME=$(mktemp -d)
           export XDG_CONFIG_HOME="$HOME"
-          /tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b 2>/tmp/err.json && code=0 || code=$?
+          err_json=$(mktemp)
+          /tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b 2>"$err_json" && code=0 || code=$?
           echo "exit code: $code"
-          cat /tmp/err.json
+          cat "$err_json"
           [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
           python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'find_replace_requires_confirmation', f\"got code {d['code']}\"
           print('confirm-find-replace: OK')
           "
@@ -91,13 +95,15 @@ jobs:
           export GOG_LITE_CLIENT_SECRET=dummy-secret
           mkdir -p "$HOME/gog-lite"
           echo '{"allowed_actions":["calendar.get"]}' > "$HOME/gog-lite/policy.json"
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>/tmp/err.json && code=0 || code=$?
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>"$err_json" && code=0 || code=$?
           echo "exit code: $code"
-          cat /tmp/err.json
+          cat "$err_json"
           [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
           python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'policy_denied', f\"got code {d['code']}\"
           print('policy-denied calendar.delete: OK')
           "
@@ -111,11 +117,13 @@ jobs:
           echo '{"allowed_actions":["calendar.get"]}' > "$HOME/gog-lite/policy.json"
           check_policy_denied() {
             cmd="$1"; label="$2"
-            eval "$cmd" 2>/tmp/err.json && code=0 || code=$?
+            err_json=$(mktemp)
+            eval "$cmd" 2>"$err_json" && code=0 || code=$?
             [ "$code" -ne 0 ] || { echo "FAIL: $label expected non-zero exit"; exit 1; }
+            [ -s "$err_json" ] || { echo "FAIL: $label expected JSON error but stderr was empty"; exit 1; }
             python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'policy_denied', f\"$label: got code {d['code']}\"
           print('policy-denied $label: OK')
             "
@@ -145,13 +153,15 @@ jobs:
         run: |
           export HOME=$(mktemp -d)
           export XDG_CONFIG_HOME="$HOME"
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>/tmp/err.json && code=0 || code=$?
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>"$err_json" && code=0 || code=$?
           echo "exit code: $code"
-          cat /tmp/err.json
+          cat "$err_json"
           [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
           python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'approval_required', f\"got code {d['code']}\"
           print('approval-required-missing-token: OK')
           "
@@ -168,14 +178,16 @@ jobs:
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
             --approval-token "$token" 2>/dev/null && true || true
           # Second use: token already used → approval_required.
+          err_json=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-            --approval-token "$token" 2>/tmp/err.json && code=0 || code=$?
+            --approval-token "$token" 2>"$err_json" && code=0 || code=$?
           echo "exit code: $code"
-          cat /tmp/err.json
+          cat "$err_json"
           [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
           python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'approval_required', f\"got code {d['code']}\"
           print('approval-token-reuse: OK')
           "
@@ -215,13 +227,15 @@ jobs:
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_KEYRING_BACKEND=file
           unset GOG_LITE_KEYRING_PASSWORD
-          /tmp/gog-lite auth list 2>/tmp/err.json && code=0 || code=$?
+          err_json=$(mktemp)
+          /tmp/gog-lite auth list 2>"$err_json" && code=0 || code=$?
           echo "exit code: $code"
-          cat /tmp/err.json
+          cat "$err_json"
           [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
           python3 -c "
           import json
-          d = json.load(open('/tmp/err.json'))
+          d = json.load(open('$err_json'))
           assert d['code'] == 'keyring_error', f\"got code {d['code']}\"
           assert 'GOG_LITE_KEYRING_PASSWORD' in d.get('error', ''), f\"unexpected error: {d}\"
           print('keyring-file-no-password: OK')
