@@ -199,9 +199,13 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 | `docs` | Docs API + Drive API | `documents.readonly` / `documents` / `drive.readonly`（操作に応じて最小権限） |
 | `drive` | Google Drive API | `drive.readonly` |
 
-## AIエージェント向け詳細
+## ドキュメント
 
-コマンド仕様・エラーコード・ページネーション・stdin活用など詳細は [`AGENTS.md`](AGENTS.md) を参照。
+| ドキュメント | 対象 | 内容 |
+|---|---|---|
+| [docs/getting-started.md](docs/getting-started.md) | 初めて使う方 | インストール・Google Cloud 設定・初回認証・動作確認 |
+| [docs/agents.md](docs/agents.md) | AI エージェント開発者 | コマンド仕様・エラーコード・ページネーション・stdin 活用 |
+| [docs/architecture.md](docs/architecture.md) | コントリビューター | パッケージ構成・セキュリティレイヤー・データフロー |
 
 ## CI セキュリティテスト方針
 
