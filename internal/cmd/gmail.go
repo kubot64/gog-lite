@@ -112,6 +112,10 @@ type GmailSendCmd struct {
 }
 
 func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "gmail.send"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	body := c.Body
 
 	if c.BodyStdin {

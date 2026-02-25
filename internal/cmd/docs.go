@@ -99,6 +99,10 @@ type DocsCreateCmd struct {
 }
 
 func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "docs.create"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	content := c.Content
 
 	if c.ContentStdin {
@@ -194,6 +198,13 @@ var exportMIMETypes = map[string]string{
 }
 
 func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "docs.export"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+	if err := ensureWithinAllowedOutputDir(c.Output, root.AllowedOutputDir); err != nil {
+		return output.WriteError(output.ExitCodePermission, "output_not_allowed", err.Error())
+	}
+
 	mimeType, ok := exportMIMETypes[strings.ToLower(c.Format)]
 	if !ok {
 		return output.WriteError(output.ExitCodeError, "invalid_format",
@@ -268,9 +279,14 @@ type DocsWriteCmd struct {
 	ContentStdin   bool   `name:"content-stdin" help:"Read content from stdin."`
 	Replace        bool   `name:"replace" help:"Replace all existing content."`
 	ConfirmReplace bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
+	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions."`
 }
 
 func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "docs.write"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	content := c.Content
 
 	if c.ContentStdin {
@@ -286,6 +302,17 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	if c.Replace && !c.ConfirmReplace {
 		return output.WriteError(output.ExitCodeError, "replace_requires_confirmation",
 			"--replace requires --confirm-replace to reduce destructive mistakes")
+	}
+	if !dryRun && c.Replace {
+		required, err := actionRequiresApproval("docs.write.replace")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			if err := consumeApprovalToken(c.Account, "docs.write.replace", c.ApprovalToken); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
 	}
 
 	if dryRun {
@@ -384,13 +411,28 @@ type DocsFindReplaceCmd struct {
 	Replace            string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase          bool   `name:"match-case" help:"Case-sensitive matching."`
 	ConfirmFindReplace bool   `name:"confirm-find-replace" help:"Required confirmation flag for find-replace operations."`
+	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions."`
 }
 
 func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
+	if err := enforceActionPolicy(c.Account, "docs.find_replace"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
 	if !dryRun && !c.ConfirmFindReplace {
 		return output.WriteError(output.ExitCodeError, "find_replace_requires_confirmation",
 			"docs find-replace requires --confirm-find-replace")
+	}
+	if !dryRun {
+		required, err := actionRequiresApproval("docs.find_replace")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			if err := consumeApprovalToken(c.Account, "docs.find_replace", c.ApprovalToken); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
 	}
 
 	if dryRun {
@@ -574,7 +616,6 @@ func ensureWithinAllowedOutputDir(outputPath, allowedDir string) error {
 	if err != nil {
 		return fmt.Errorf("resolve allowed output dir: %w", err)
 	}
-
 	if outAbs == allowedAbs {
 		return nil
 	}

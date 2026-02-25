@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/morikubo-takashi/gog-lite/internal/config"
 	"github.com/morikubo-takashi/gog-lite/internal/googleauth"
@@ -15,9 +16,12 @@ import (
 
 // AuthCmd groups auth subcommands.
 type AuthCmd struct {
-	Login  AuthLoginCmd  `cmd:"" help:"Authenticate a Google account (2-step headless flow)."`
-	List   AuthListCmd   `cmd:"" help:"List authenticated accounts."`
-	Remove AuthRemoveCmd `cmd:"" help:"Remove a stored account token."`
+	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow)."`
+	List            AuthListCmd            `cmd:"" help:"List authenticated accounts."`
+	Remove          AuthRemoveCmd          `cmd:"" help:"Remove a stored account token."`
+	Preflight       AuthPreflightCmd       `cmd:"" help:"Check readiness for AI-agent operations."`
+	ApprovalToken   AuthApprovalTokenCmd   `cmd:"" help:"Issue one-time approval token for dangerous actions."`
+	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Immediately revoke account token and block account by policy."`
 }
 
 // AuthLoginCmd implements the 2-step headless OAuth flow.
@@ -190,6 +194,135 @@ func (c *AuthRemoveCmd) Run(_ context.Context, root *RootFlags) error {
 	})
 }
 
+type AuthPreflightCmd struct {
+	Account        string `name:"account" required:"" short:"a" help:"Google account email."`
+	RequireActions string `name:"require-actions" help:"Comma-separated action IDs to verify (e.g. gmail.send,calendar.create)."`
+}
+
+func (c *AuthPreflightCmd) Run(_ context.Context, _ *RootFlags) error {
+	account := normalizeEmail(c.Account)
+	required := splitCSV(c.RequireActions)
+
+	type checkResult struct {
+		Name    string `json:"name"`
+		OK      bool   `json:"ok"`
+		Message string `json:"message,omitempty"`
+	}
+
+	checks := make([]checkResult, 0, 4+len(required))
+	ready := true
+
+	if _, err := config.ReadCredentials(); err != nil {
+		ready = false
+		checks = append(checks, checkResult{Name: "credentials", OK: false, Message: err.Error()})
+	} else {
+		checks = append(checks, checkResult{Name: "credentials", OK: true})
+	}
+
+	store, err := secrets.OpenDefault()
+	if err != nil {
+		ready = false
+		checks = append(checks, checkResult{Name: "keyring", OK: false, Message: err.Error()})
+	} else {
+		checks = append(checks, checkResult{Name: "keyring", OK: true})
+		if _, err := store.GetToken(account); err != nil {
+			ready = false
+			checks = append(checks, checkResult{Name: "token", OK: false, Message: err.Error()})
+		} else {
+			checks = append(checks, checkResult{Name: "token", OK: true})
+		}
+	}
+
+	for _, action := range required {
+		if err := enforceActionPolicy(account, action); err != nil {
+			ready = false
+			checks = append(checks, checkResult{Name: "policy:" + action, OK: false, Message: err.Error()})
+		} else {
+			checks = append(checks, checkResult{Name: "policy:" + action, OK: true})
+		}
+	}
+
+	return output.WriteJSON(os.Stdout, map[string]any{
+		"ready":  ready,
+		"email":  account,
+		"checks": checks,
+	})
+}
+
+type AuthApprovalTokenCmd struct {
+	Account string `name:"account" required:"" short:"a" help:"Google account email."`
+	Action  string `name:"action" required:"" help:"Action ID (e.g. docs.write.replace)."`
+	TTL     string `name:"ttl" default:"10m" help:"Token TTL duration (e.g. 5m, 15m, 1h)."`
+}
+
+func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
+	account := normalizeEmail(c.Account)
+	action := strings.ToLower(strings.TrimSpace(c.Action))
+	ttl, err := time.ParseDuration(c.TTL)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "invalid_ttl", fmt.Sprintf("parse ttl: %v", err))
+	}
+
+	token, expiresAt, err := issueApprovalToken(account, action, ttl)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "approval_token_error", err.Error())
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "auth.approval_token",
+		Account: account,
+		Target:  action,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+	}
+
+	return output.WriteJSON(os.Stdout, map[string]any{
+		"issued":     true,
+		"account":    account,
+		"action":     action,
+		"token":      token,
+		"expires_at": expiresAt,
+	})
+}
+
+type AuthEmergencyRevokeCmd struct {
+	Account string `name:"account" required:"" short:"a" help:"Google account email to revoke and block."`
+}
+
+func (c *AuthEmergencyRevokeCmd) Run(_ context.Context, root *RootFlags) error {
+	account := normalizeEmail(c.Account)
+	store, err := secrets.OpenDefault()
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "keyring_error", err.Error())
+	}
+
+	if err := store.DeleteToken(account); err != nil {
+		return output.WriteError(output.ExitCodeError, "remove_error", err.Error())
+	}
+
+	p, err := config.ReadPolicy()
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	p.BlockedAccounts = append(p.BlockedAccounts, account)
+	if err := config.WritePolicy(p); err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "auth.emergency_revoke",
+		Account: account,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+	}
+
+	return output.WriteJSON(os.Stdout, map[string]any{
+		"revoked": true,
+		"blocked": true,
+		"email":   account,
+	})
+}
+
 // parseServices parses a comma-separated list of service names.
 func parseServices(csv string) ([]googleauth.Service, error) {
 	parts := strings.Split(csv, ",")
@@ -214,4 +347,21 @@ func parseServices(csv string) ([]googleauth.Service, error) {
 	}
 
 	return out, nil
+}
+
+func splitCSV(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+
+	return out
 }

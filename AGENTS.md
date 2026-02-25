@@ -92,6 +92,9 @@ gog-lite auth list
 gog-lite auth login  --account EMAIL [--services gmail,calendar,docs] [--auth-url URL] [--force-consent]
 gog-lite auth list
 gog-lite auth remove --account EMAIL
+gog-lite auth preflight --account EMAIL [--require-actions gmail.send,calendar.create]
+gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
+gog-lite auth emergency-revoke --account EMAIL
 ```
 
 ---
@@ -223,7 +226,7 @@ gog-lite calendar update --account EMAIL --event-id ID \
 #### delete
 
 ```bash
-gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] [--confirm-delete]
+gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] --confirm-delete [--approval-token TOKEN]
 ```
 
 ```json
@@ -281,7 +284,7 @@ gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|h
 #### write
 
 ```bash
-gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace]
+gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace --approval-token TOKEN]
 # --replace で既存内容をすべて置換
 cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-stdin --replace
 ```
@@ -289,7 +292,7 @@ cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-s
 #### find-replace
 
 ```bash
-gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] [--confirm-find-replace]
+gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] --confirm-find-replace [--approval-token TOKEN]
 ```
 
 ```json

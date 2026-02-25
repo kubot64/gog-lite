@@ -198,6 +198,10 @@ type CalendarCreateCmd struct {
 }
 
 func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "calendar.create"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if err := validateRFC3339("--start", c.Start); err != nil {
 		return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
 	}
@@ -281,6 +285,10 @@ type CalendarUpdateCmd struct {
 }
 
 func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "calendar.update"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if c.Start != "" {
 		if err := validateRFC3339("--start", c.Start); err != nil {
 			return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
@@ -379,13 +387,29 @@ type CalendarDeleteCmd struct {
 	EventID       string `name:"event-id" required:"" help:"Calendar event ID."`
 	CalendarID    string `name:"calendar-id" default:"primary" help:"Calendar ID."`
 	ConfirmDelete bool   `name:"confirm-delete" help:"Required confirmation flag for delete operations."`
+	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions."`
 }
 
 func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "calendar.delete"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	dryRun := root.DryRun
 	if !dryRun && !c.ConfirmDelete {
 		return output.WriteError(output.ExitCodeError, "delete_requires_confirmation",
 			"calendar delete requires --confirm-delete")
+	}
+	if !dryRun {
+		required, err := actionRequiresApproval("calendar.delete")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			if err := consumeApprovalToken(c.Account, "calendar.delete", c.ApprovalToken); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
 	}
 
 	if dryRun {

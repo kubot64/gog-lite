@@ -52,6 +52,7 @@ func optionsForEmailWithScopes(
 	email string,
 	scopes []string,
 ) ([]option.ClientOption, error) {
+	scopes = normalizeScopes(scopes)
 	if len(scopes) == 0 {
 		return nil, fmt.Errorf("no scopes configured for %s", serviceName)
 	}
