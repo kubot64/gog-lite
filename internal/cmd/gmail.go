@@ -65,12 +65,12 @@ func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
 	})
 
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "search_error", err.Error())
+		return writeGoogleAPIError("search_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
-		"messages":       messages,
-		"nextPageToken":  nextPageToken,
+		"messages":      messages,
+		"nextPageToken": nextPageToken,
 	})
 }
 
@@ -89,7 +89,7 @@ func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	msg, err := svc.Users.Messages.Get("me", c.MessageID).Format(c.Format).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "get_error", err.Error())
+		return writeGoogleAPIError("get_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, msg)
@@ -144,7 +144,7 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	msg, err := svc.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "send_error", err.Error())
+		return writeGoogleAPIError("send_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -169,7 +169,7 @@ func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	thread, err := svc.Users.Threads.Get("me", c.ThreadID).Format(c.Format).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "thread_error", err.Error())
+		return writeGoogleAPIError("thread_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, thread)
@@ -188,7 +188,7 @@ func (c *GmailLabelsCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	resp, err := svc.Users.Labels.List("me").Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "labels_error", err.Error())
+		return writeGoogleAPIError("labels_error", err)
 	}
 
 	type labelInfo struct {

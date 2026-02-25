@@ -35,7 +35,7 @@ func (c *CalendarCalendarsCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	resp, err := svc.CalendarList.List().Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "calendars_error", err.Error())
+		return writeGoogleAPIError("calendars_error", err)
 	}
 
 	type calendarInfo struct {
@@ -152,7 +152,7 @@ func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 	})
 
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "list_error", err.Error())
+		return writeGoogleAPIError("list_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -176,7 +176,7 @@ func (c *CalendarGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	event, err := svc.Events.Get(c.CalendarID, c.EventID).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "get_error", err.Error())
+		return writeGoogleAPIError("get_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, event)
@@ -235,7 +235,7 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	created, err := svc.Events.Insert(c.CalendarID, event).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "create_error", err.Error())
+		return writeGoogleAPIError("create_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -300,7 +300,7 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 	// Fetch existing event.
 	event, err := svc.Events.Get(c.CalendarID, c.EventID).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "get_error", err.Error())
+		return writeGoogleAPIError("get_error", err)
 	}
 
 	if c.Title != "" {
@@ -325,7 +325,7 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	updated, err := svc.Events.Update(c.CalendarID, c.EventID, event).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "update_error", err.Error())
+		return writeGoogleAPIError("update_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -365,7 +365,7 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	if err := svc.Events.Delete(c.CalendarID, c.EventID).Do(); err != nil {
-		return output.WriteError(output.ExitCodeError, "delete_error", err.Error())
+		return writeGoogleAPIError("delete_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{

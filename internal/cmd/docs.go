@@ -37,7 +37,7 @@ func (c *DocsInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	doc, err := svc.Documents.Get(c.DocID).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "docs_info_error", err.Error())
+		return writeGoogleAPIError("docs_info_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -63,20 +63,22 @@ func (c *DocsCatCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	doc, err := svc.Documents.Get(c.DocID).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "docs_cat_error", err.Error())
+		return writeGoogleAPIError("docs_cat_error", err)
 	}
 
 	text := docsPlainText(doc)
+	truncated := false
 
 	if c.MaxBytes > 0 && len(text) > c.MaxBytes {
 		text = text[:c.MaxBytes]
+		truncated = true
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
-		"id":      doc.DocumentId,
-		"title":   doc.Title,
-		"content": text,
-		"truncated": len(text) == c.MaxBytes,
+		"id":        doc.DocumentId,
+		"title":     doc.Title,
+		"content":   text,
+		"truncated": truncated,
 	})
 }
 
@@ -109,7 +111,7 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	created, err := docSvc.Documents.Create(doc).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "docs_create_error", err.Error())
+		return writeGoogleAPIError("docs_create_error", err)
 	}
 
 	// If initial content provided, insert it.
@@ -126,7 +128,7 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 		}
 
 		if _, err := docSvc.Documents.BatchUpdate(created.DocumentId, req).Do(); err != nil {
-			return output.WriteError(output.ExitCodeError, "docs_write_error", err.Error())
+			return writeGoogleAPIError("docs_write_error", err)
 		}
 	}
 
@@ -137,11 +139,11 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 	})
 }
 
-// DocsExportCmd exports a document to PDF, DOCX, or TXT.
+// DocsExportCmd exports a document to PDF, DOCX, TXT, ODT, or HTML.
 type DocsExportCmd struct {
 	Account string `name:"account" required:"" short:"a" help:"Google account email."`
 	DocID   string `name:"doc-id" required:"" help:"Google Docs document ID."`
-	Format  string `name:"format" required:"" help:"Export format: pdf, docx, txt."`
+	Format  string `name:"format" required:"" help:"Export format: pdf, docx, txt, odt, html."`
 	Output  string `name:"output" required:"" help:"Output file path."`
 }
 
@@ -167,7 +169,7 @@ func (c *DocsExportCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	resp, err := driveSvc.Files.Export(c.DocID, mimeType).Download()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "docs_export_error", err.Error())
+		return writeGoogleAPIError("docs_export_error", err)
 	}
 
 	defer resp.Body.Close()
@@ -240,7 +242,7 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		// Get document length to delete all content.
 		doc, err := docSvc.Documents.Get(c.DocID).Do()
 		if err != nil {
-			return output.WriteError(output.ExitCodeError, "docs_get_error", err.Error())
+			return writeGoogleAPIError("docs_get_error", err)
 		}
 
 		docLen := docBodyLength(doc)
@@ -277,7 +279,7 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	if _, err := docSvc.Documents.BatchUpdate(c.DocID, &docs.BatchUpdateDocumentRequest{
 		Requests: requests,
 	}).Do(); err != nil {
-		return output.WriteError(output.ExitCodeError, "docs_write_error", err.Error())
+		return writeGoogleAPIError("docs_write_error", err)
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -334,7 +336,7 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	resp, err := docSvc.Documents.BatchUpdate(c.DocID, req).Do()
 	if err != nil {
-		return output.WriteError(output.ExitCodeError, "docs_find_replace_error", err.Error())
+		return writeGoogleAPIError("docs_find_replace_error", err)
 	}
 
 	occurrences := int64(0)
