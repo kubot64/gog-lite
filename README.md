@@ -204,7 +204,11 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 | ドキュメント | 対象 | 内容 |
 |---|---|---|
 | [docs/getting-started.md](docs/getting-started.md) | 初めて使う方 | インストール・Google Cloud 設定・初回認証・動作確認 |
-| [AGENTS.md](AGENTS.md) | AI エージェント開発者 | コマンド仕様・エラーコード・ページネーション・stdin 活用 |
+| [AGENTS.md](AGENTS.md) | AI エージェント開発者 | Codex向け最小運用ルール（優先順位・禁止事項・テスト方針） |
+| [docs/agents.md](docs/agents.md) | AI エージェント開発者 | コマンド仕様・エラーコード・ページネーション・stdin 活用（詳細版） |
+| [docs/coding-rules.md](docs/coding-rules.md) | コントリビューター | 実装時の規約・出力契約・テストルール |
+| [docs/review-checklist.md](docs/review-checklist.md) | レビュアー | バグ・回帰・セキュリティ観点のレビュー項目 |
+| [docs/ci-playbook.md](docs/ci-playbook.md) | 開発者 | CI失敗時の切り分けとフレーク対処手順 |
 | [docs/architecture.md](docs/architecture.md) | コントリビューター | パッケージ構成・セキュリティレイヤー・データフロー |
 
 ## CI セキュリティテスト方針
