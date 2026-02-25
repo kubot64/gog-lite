@@ -28,7 +28,7 @@ type CalendarCalendarsCmd struct {
 }
 
 func (c *CalendarCalendarsCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewCalendar(ctx, c.Account)
+	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -75,6 +75,10 @@ type CalendarListCmd struct {
 }
 
 func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceRateLimit("calendar.list", 120, time.Minute); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	if err := validateRFC3339Optional("--from", c.From); err != nil {
 		return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
 	}
@@ -83,7 +87,7 @@ func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
 	}
 
-	svc, err := googleapi.NewCalendar(ctx, c.Account)
+	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -169,7 +173,7 @@ type CalendarGetCmd struct {
 }
 
 func (c *CalendarGetCmd) Run(ctx context.Context, _ *RootFlags) error {
-	svc, err := googleapi.NewCalendar(ctx, c.Account)
+	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -228,7 +232,7 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	svc, err := googleapi.NewCalendar(ctx, c.Account)
+	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -316,7 +320,7 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	svc, err := googleapi.NewCalendar(ctx, c.Account)
+	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -371,13 +375,18 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 
 // CalendarDeleteCmd deletes a calendar event.
 type CalendarDeleteCmd struct {
-	Account    string `name:"account" required:"" short:"a" help:"Google account email."`
-	EventID    string `name:"event-id" required:"" help:"Calendar event ID."`
-	CalendarID string `name:"calendar-id" default:"primary" help:"Calendar ID."`
+	Account       string `name:"account" required:"" short:"a" help:"Google account email."`
+	EventID       string `name:"event-id" required:"" help:"Calendar event ID."`
+	CalendarID    string `name:"calendar-id" default:"primary" help:"Calendar ID."`
+	ConfirmDelete bool   `name:"confirm-delete" help:"Required confirmation flag for delete operations."`
 }
 
 func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
+	if !dryRun && !c.ConfirmDelete {
+		return output.WriteError(output.ExitCodeError, "delete_requires_confirmation",
+			"calendar delete requires --confirm-delete")
+	}
 
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
@@ -399,7 +408,7 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	svc, err := googleapi.NewCalendar(ctx, c.Account)
+	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}

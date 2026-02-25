@@ -10,9 +10,10 @@ import (
 
 // RootFlags are flags available to all commands.
 type RootFlags struct {
-	Verbose  bool   `name:"verbose" short:"v" help:"Enable verbose logging."`
-	DryRun   bool   `name:"dry-run" short:"n" help:"Print what would be done without executing."`
-	AuditLog string `name:"audit-log" help:"Append write-action audit logs as JSON lines to this file path."`
+	Verbose          bool   `name:"verbose" short:"v" help:"Enable verbose logging."`
+	DryRun           bool   `name:"dry-run" short:"n" help:"Print what would be done without executing."`
+	AuditLog         string `name:"audit-log" help:"Append write-action audit logs as JSON lines to this file path."`
+	AllowedOutputDir string `name:"allowed-output-dir" help:"Restrict write outputs to this directory (and its children)."`
 }
 
 // CLI is the top-level command structure.

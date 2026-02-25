@@ -202,3 +202,16 @@ func TestWriteFileAtomically_Overwrite(t *testing.T) {
 		t.Fatalf("got %q", string(got))
 	}
 }
+
+func TestEnsureWithinAllowedOutputDir(t *testing.T) {
+	base := t.TempDir()
+	okPath := filepath.Join(base, "sub", "out.txt")
+	if err := ensureWithinAllowedOutputDir(okPath, base); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	badPath := filepath.Join(t.TempDir(), "other.txt")
+	if err := ensureWithinAllowedOutputDir(badPath, base); err == nil {
+		t.Fatal("expected error for path outside allowed dir")
+	}
+}
