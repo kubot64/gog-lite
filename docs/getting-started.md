@@ -189,5 +189,5 @@ export GOG_LITE_KEYRING_PASSWORD=任意のパスワード
 ## 次のステップ
 
 - より詳しいコマンド一覧 → [README](../README.md)
-- AI エージェントとして使う → [docs/agents.md](agents.md)
+- AI エージェントとして使う → [AGENTS.md](../AGENTS.md)
 - 内部構造を理解する → [docs/architecture.md](architecture.md)

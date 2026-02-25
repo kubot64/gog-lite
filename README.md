@@ -204,7 +204,7 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 | ドキュメント | 対象 | 内容 |
 |---|---|---|
 | [docs/getting-started.md](docs/getting-started.md) | 初めて使う方 | インストール・Google Cloud 設定・初回認証・動作確認 |
-| [docs/agents.md](docs/agents.md) | AI エージェント開発者 | コマンド仕様・エラーコード・ページネーション・stdin 活用 |
+| [AGENTS.md](AGENTS.md) | AI エージェント開発者 | コマンド仕様・エラーコード・ページネーション・stdin 活用 |
 | [docs/architecture.md](docs/architecture.md) | コントリビューター | パッケージ構成・セキュリティレイヤー・データフロー |
 
 ## CI セキュリティテスト方針
