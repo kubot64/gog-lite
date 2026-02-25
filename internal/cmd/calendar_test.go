@@ -1,9 +1,14 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"google.golang.org/api/calendar/v3"
+
+	"github.com/morikubo-takashi/gog-lite/internal/output"
 )
 
 func TestValidateRFC3339_Valid(t *testing.T) {
@@ -92,5 +97,36 @@ func TestEventTimeString_EmptyDateTime(t *testing.T) {
 	edt := &calendar.EventDateTime{DateTime: "", Date: ""}
 	if got := eventTimeString(edt); got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestCalendarDeleteRequiresConfirmation(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	cmd := &CalendarDeleteCmd{
+		Account:       "a@example.com",
+		EventID:       "event-123",
+		ConfirmDelete: false, // missing confirmation
+	}
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	})
+	if err == nil {
+		t.Fatal("expected error when --confirm-delete is not set")
+	}
+	if output.ExitCode(err) != output.ExitCodeError {
+		t.Fatalf("expected ExitCodeError, got %d", output.ExitCode(err))
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err2 := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err2 != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err2, stderr)
+	}
+	if payload.Code != "delete_requires_confirmation" {
+		t.Errorf("code = %q, want %q", payload.Code, "delete_requires_confirmation")
 	}
 }
