@@ -32,6 +32,76 @@ jobs:
           path: /tmp/gog-lite-test-*.log
           if-no-files-found: ignore
 
+  integration-cli:
+    name: CLI Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build CLI binary
+        run: go build -o /tmp/gog-lite ./cmd/gog-lite/
+      - name: preflight returns ready=false without credentials
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          out=$(/tmp/gog-lite auth preflight --account test@example.com)
+          echo "$out"
+          echo "$out" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          assert d['ready'] == False, 'expected ready=false'
+          assert any(c['name'] == 'credentials' and not c['ok'] for c in d['checks']), 'expected credentials check to fail'
+          print('preflight: OK')
+          "
+      - name: confirm-delete required for calendar delete
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x 2>/tmp/err.json; code=$?
+          echo "exit code: $code"
+          cat /tmp/err.json
+          [ $code -ne 0 ]
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'delete_requires_confirmation', f\"got code {d['code']}\"
+          print('confirm-delete: OK')
+          "
+      - name: confirm-find-replace required for docs find-replace
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          /tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b 2>/tmp/err.json; code=$?
+          echo "exit code: $code"
+          cat /tmp/err.json
+          [ $code -ne 0 ]
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'find_replace_requires_confirmation', f\"got code {d['code']}\"
+          print('confirm-find-replace: OK')
+          "
+      - name: policy denies blocked action
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          mkdir -p "$HOME/gog-lite"
+          echo '{"allowed_actions":["calendar.get"]}' > "$HOME/gog-lite/policy.json"
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>/tmp/err.json; code=$?
+          echo "exit code: $code"
+          cat /tmp/err.json
+          [ $code -ne 0 ]
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'policy_denied', f\"got code {d['code']}\"
+          print('policy-denied: OK')
+          "
+
   security-nightly:
     name: Security Regression (nightly)
     runs-on: ubuntu-latest

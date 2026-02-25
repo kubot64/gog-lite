@@ -3,8 +3,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"google.golang.org/api/docs/v1"
@@ -231,12 +233,24 @@ func TestDocsWriteReplaceRequiresConfirmation(t *testing.T) {
 		Replace:        true,
 		ConfirmReplace: false, // missing confirmation
 	}
-	err := cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	})
 	if err == nil {
 		t.Fatal("expected error when --replace is set without --confirm-replace")
 	}
 	if output.ExitCode(err) != output.ExitCodeError {
 		t.Fatalf("expected ExitCodeError, got %d", output.ExitCode(err))
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err2 := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err2 != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err2, stderr)
+	}
+	if payload.Code != "replace_requires_confirmation" {
+		t.Errorf("code = %q, want %q", payload.Code, "replace_requires_confirmation")
 	}
 }
 
@@ -252,11 +266,23 @@ func TestDocsFindReplaceRequiresConfirmation(t *testing.T) {
 		Replace:            "new",
 		ConfirmFindReplace: false, // missing confirmation
 	}
-	err := cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	})
 	if err == nil {
 		t.Fatal("expected error when --confirm-find-replace is not set")
 	}
 	if output.ExitCode(err) != output.ExitCodeError {
 		t.Fatalf("expected ExitCodeError, got %d", output.ExitCode(err))
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err2 := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err2 != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err2, stderr)
+	}
+	if payload.Code != "find_replace_requires_confirmation" {
+		t.Errorf("code = %q, want %q", payload.Code, "find_replace_requires_confirmation")
 	}
 }
