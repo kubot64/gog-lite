@@ -319,10 +319,11 @@ gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace
 ### 認証エラーの検出パターン
 
 ```bash
-output=$(gog-lite gmail labels --account you@gmail.com 2>/tmp/err.json)
+err_json=$(mktemp)
+output=$(gog-lite gmail labels --account you@gmail.com 2>"$err_json")
 exit_code=$?
 if [ $exit_code -eq 2 ]; then
-  echo "要認証: $(cat /tmp/err.json | jq -r .error)"
+  echo "要認証: $(jq -r .error "$err_json")"
 fi
 ```
 
