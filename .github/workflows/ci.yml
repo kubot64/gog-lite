@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Security regression nightly at 02:00 UTC
+    - cron: '0 2 * * *'
 
 jobs:
-  ci:
+  unit-fast:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,3 +21,35 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
+        env:
+          GOG_LITE_KEYRING_BACKEND: file
+          GOG_LITE_KEYRING_PASSWORD: ci-test-password
+      - name: Upload test failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-failures
+          path: /tmp/gog-lite-test-*.log
+          if-no-files-found: ignore
+
+  security-nightly:
+    name: Security Regression (nightly)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run security regression tests
+        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestStdinLimit'
+        env:
+          GOG_LITE_KEYRING_BACKEND: file
+          GOG_LITE_KEYRING_PASSWORD: ci-test-password
+      - name: Upload security test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-results
+          path: /tmp/gog-lite-security-*.log
+          if-no-files-found: ignore

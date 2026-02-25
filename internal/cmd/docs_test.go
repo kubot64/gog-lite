@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"google.golang.org/api/docs/v1"
+
+	"github.com/morikubo-takashi/gog-lite/internal/output"
 )
 
 func TestDocsPlainText_NilBody(t *testing.T) {
@@ -213,5 +216,47 @@ func TestEnsureWithinAllowedOutputDir(t *testing.T) {
 	badPath := filepath.Join(t.TempDir(), "other.txt")
 	if err := ensureWithinAllowedOutputDir(badPath, base); err == nil {
 		t.Fatal("expected error for path outside allowed dir")
+	}
+}
+
+func TestDocsWriteReplaceRequiresConfirmation(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	cmd := &DocsWriteCmd{
+		Account:        "a@example.com",
+		DocID:          "doc-123",
+		Content:        "hello",
+		Replace:        true,
+		ConfirmReplace: false, // missing confirmation
+	}
+	err := cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	if err == nil {
+		t.Fatal("expected error when --replace is set without --confirm-replace")
+	}
+	if output.ExitCode(err) != output.ExitCodeError {
+		t.Fatalf("expected ExitCodeError, got %d", output.ExitCode(err))
+	}
+}
+
+func TestDocsFindReplaceRequiresConfirmation(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	cmd := &DocsFindReplaceCmd{
+		Account:            "a@example.com",
+		DocID:              "doc-123",
+		Find:               "old",
+		Replace:            "new",
+		ConfirmFindReplace: false, // missing confirmation
+	}
+	err := cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	if err == nil {
+		t.Fatal("expected error when --confirm-find-replace is not set")
+	}
+	if output.ExitCode(err) != output.ExitCodeError {
+		t.Fatalf("expected ExitCodeError, got %d", output.ExitCode(err))
 	}
 }
