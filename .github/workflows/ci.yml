@@ -59,10 +59,10 @@ jobs:
         run: |
           export HOME=$(mktemp -d)
           export XDG_CONFIG_HOME="$HOME"
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x 2>/tmp/err.json; code=$?
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x 2>/tmp/err.json && code=0 || code=$?
           echo "exit code: $code"
           cat /tmp/err.json
-          [ $code -ne 0 ]
+          [ "$code" -ne 0 ]
           python3 -c "
           import json
           d = json.load(open('/tmp/err.json'))
@@ -73,10 +73,10 @@ jobs:
         run: |
           export HOME=$(mktemp -d)
           export XDG_CONFIG_HOME="$HOME"
-          /tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b 2>/tmp/err.json; code=$?
+          /tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b 2>/tmp/err.json && code=0 || code=$?
           echo "exit code: $code"
           cat /tmp/err.json
-          [ $code -ne 0 ]
+          [ "$code" -ne 0 ]
           python3 -c "
           import json
           d = json.load(open('/tmp/err.json'))
@@ -91,10 +91,10 @@ jobs:
           export GOG_LITE_CLIENT_SECRET=dummy-secret
           mkdir -p "$HOME/gog-lite"
           echo '{"allowed_actions":["calendar.get"]}' > "$HOME/gog-lite/policy.json"
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>/tmp/err.json; code=$?
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>/tmp/err.json && code=0 || code=$?
           echo "exit code: $code"
           cat /tmp/err.json
-          [ $code -ne 0 ]
+          [ "$code" -ne 0 ]
           python3 -c "
           import json
           d = json.load(open('/tmp/err.json'))
