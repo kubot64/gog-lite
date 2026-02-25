@@ -83,7 +83,7 @@ jobs:
           assert d['code'] == 'find_replace_requires_confirmation', f\"got code {d['code']}\"
           print('confirm-find-replace: OK')
           "
-      - name: policy denies blocked action
+      - name: policy denies blocked action (calendar.delete)
         run: |
           export HOME=$(mktemp -d)
           export XDG_CONFIG_HOME="$HOME"
@@ -99,8 +99,99 @@ jobs:
           import json
           d = json.load(open('/tmp/err.json'))
           assert d['code'] == 'policy_denied', f\"got code {d['code']}\"
-          print('policy-denied: OK')
+          print('policy-denied calendar.delete: OK')
           "
+      - name: policy denies write commands
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          mkdir -p "$HOME/gog-lite"
+          echo '{"allowed_actions":["calendar.get"]}' > "$HOME/gog-lite/policy.json"
+          check_policy_denied() {
+            cmd="$1"; label="$2"
+            eval "$cmd" 2>/tmp/err.json && code=0 || code=$?
+            [ "$code" -ne 0 ] || { echo "FAIL: $label expected non-zero exit"; exit 1; }
+            python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'policy_denied', f\"$label: got code {d['code']}\"
+          print('policy-denied $label: OK')
+            "
+          }
+          check_policy_denied \
+            "/tmp/gog-lite gmail send --account test@example.com --to a@b.com --subject x --body y" \
+            "gmail.send"
+          check_policy_denied \
+            "/tmp/gog-lite calendar create --account test@example.com --title t --start 2026-03-01T10:00:00Z --end 2026-03-01T11:00:00Z" \
+            "calendar.create"
+          check_policy_denied \
+            "/tmp/gog-lite calendar update --account test@example.com --event-id x --title t" \
+            "calendar.update"
+          check_policy_denied \
+            "/tmp/gog-lite docs create --account test@example.com --title t" \
+            "docs.create"
+          check_policy_denied \
+            "/tmp/gog-lite docs write --account test@example.com --doc-id x --content hello" \
+            "docs.write"
+          check_policy_denied \
+            "/tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b" \
+            "docs.find-replace"
+          check_policy_denied \
+            "/tmp/gog-lite docs export --account test@example.com --doc-id x --format pdf --output /tmp/out.pdf" \
+            "docs.export"
+      - name: approval-token required when missing
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>/tmp/err.json && code=0 || code=$?
+          echo "exit code: $code"
+          cat /tmp/err.json
+          [ "$code" -ne 0 ]
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('approval-required-missing-token: OK')
+          "
+      - name: approval-token reuse rejected
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          echo "issued token"
+          # First use: token is consumed; command then fails at auth (no real credentials).
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+            --approval-token "$token" 2>/dev/null && true || true
+          # Second use: token already used → approval_required.
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+            --approval-token "$token" 2>/tmp/err.json && code=0 || code=$?
+          echo "exit code: $code"
+          cat /tmp/err.json
+          [ "$code" -ne 0 ]
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('approval-token-reuse: OK')
+          "
+      - name: dry-run skips confirm and approval-token
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          out=$(/tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x)
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') == True, 'expected dry_run=true'
+          assert d.get('action') == 'calendar.delete', f\"expected action calendar.delete, got {d.get('action')}\"
+          print('dry-run-skips-token: OK')
+          " "$out"
 
   security-nightly:
     name: Security Regression (nightly)
@@ -112,10 +203,29 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run security regression tests
-        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestStdinLimit'
+        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestReadStdinWithLimit'
         env:
           GOG_LITE_KEYRING_BACKEND: file
           GOG_LITE_KEYRING_PASSWORD: ci-test-password
+      - name: Build CLI binary
+        run: go build -o /tmp/gog-lite ./cmd/gog-lite/
+      - name: keyring file backend requires password
+        run: |
+          export HOME=$(mktemp -d)
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_KEYRING_BACKEND=file
+          unset GOG_LITE_KEYRING_PASSWORD
+          /tmp/gog-lite auth list 2>/tmp/err.json && code=0 || code=$?
+          echo "exit code: $code"
+          cat /tmp/err.json
+          [ "$code" -ne 0 ]
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/err.json'))
+          assert d['code'] == 'keyring_error', f\"got code {d['code']}\"
+          assert 'GOG_LITE_KEYRING_PASSWORD' in d.get('error', ''), f\"unexpected error: {d}\"
+          print('keyring-file-no-password: OK')
+          "
       - name: Upload security test results
         if: always()
         uses: actions/upload-artifact@v4
