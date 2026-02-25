@@ -205,6 +205,14 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
 
 	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "calendar.create",
+			Account: normalizeEmail(c.Account),
+			Target:  c.CalendarID,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
 		return output.WriteJSON(os.Stdout, map[string]any{
 			"dry_run": true,
 			"action":  "calendar.create",
@@ -236,6 +244,14 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 	created, err := svc.Events.Insert(c.CalendarID, event).Do()
 	if err != nil {
 		return writeGoogleAPIError("create_error", err)
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "calendar.create",
+		Account: normalizeEmail(c.Account),
+		Target:  created.Id,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -276,6 +292,14 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
 
 	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "calendar.update",
+			Account: normalizeEmail(c.Account),
+			Target:  c.EventID,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
 		return output.WriteJSON(os.Stdout, map[string]any{
 			"dry_run": true,
 			"action":  "calendar.update",
@@ -327,6 +351,14 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 	if err != nil {
 		return writeGoogleAPIError("update_error", err)
 	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "calendar.update",
+		Account: normalizeEmail(c.Account),
+		Target:  c.EventID,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
 		"id":      updated.Id,
@@ -348,6 +380,14 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
 
 	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "calendar.delete",
+			Account: normalizeEmail(c.Account),
+			Target:  c.EventID,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
 		return output.WriteJSON(os.Stdout, map[string]any{
 			"dry_run": true,
 			"action":  "calendar.delete",
@@ -366,6 +406,14 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	if err := svc.Events.Delete(c.CalendarID, c.EventID).Do(); err != nil {
 		return writeGoogleAPIError("delete_error", err)
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "calendar.delete",
+		Account: normalizeEmail(c.Account),
+		Target:  c.EventID,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{

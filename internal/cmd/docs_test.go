@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"google.golang.org/api/docs/v1"
@@ -160,5 +163,42 @@ func TestTruncateText_OverLimit(t *testing.T) {
 	}
 	if !truncated {
 		t.Error("expected truncated=true")
+	}
+}
+
+func TestWriteFileAtomically_NoOverwriteWhenFileExists(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.txt")
+	if err := os.WriteFile(out, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	_, err := writeFileAtomically(out, bytes.NewBufferString("new"), false)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestWriteFileAtomically_Overwrite(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.txt")
+	if err := os.WriteFile(out, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	written, err := writeFileAtomically(out, bytes.NewBufferString("new-value"), true)
+	if err != nil {
+		t.Fatalf("writeFileAtomically: %v", err)
+	}
+	if written != int64(len("new-value")) {
+		t.Fatalf("written=%d", written)
+	}
+
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if string(got) != "new-value" {
+		t.Fatalf("got %q", string(got))
 	}
 }

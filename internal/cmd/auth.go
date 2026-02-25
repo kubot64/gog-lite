@@ -31,7 +31,7 @@ type AuthLoginCmd struct {
 	ForceConsent bool   `name:"force-consent" help:"Force Google consent screen (re-requests refresh token)."`
 }
 
-func (c *AuthLoginCmd) Run(ctx context.Context, _ *RootFlags) error {
+func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 	account := normalizeEmail(c.Account)
 	services, err := parseServices(c.Services)
 	if err != nil {
@@ -92,6 +92,14 @@ func (c *AuthLoginCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 		if err := store.SetToken(account, tok); err != nil {
 			return output.WriteError(output.ExitCodeError, "store_token_error", err.Error())
+		}
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "auth.login",
+			Account: account,
+			Target:  strings.Join(serviceNames, ","),
+			DryRun:  false,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
 
 		return output.WriteJSON(os.Stdout, map[string]any{
@@ -159,7 +167,7 @@ type AuthRemoveCmd struct {
 	Account string `name:"account" required:"" short:"a" help:"Google account email to remove."`
 }
 
-func (c *AuthRemoveCmd) Run(_ context.Context, _ *RootFlags) error {
+func (c *AuthRemoveCmd) Run(_ context.Context, root *RootFlags) error {
 	store, err := secrets.OpenDefault()
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "keyring_error", err.Error())
@@ -167,6 +175,13 @@ func (c *AuthRemoveCmd) Run(_ context.Context, _ *RootFlags) error {
 
 	if err := store.DeleteToken(c.Account); err != nil {
 		return output.WriteError(output.ExitCodeError, "remove_error", err.Error())
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "auth.remove",
+		Account: normalizeEmail(c.Account),
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{

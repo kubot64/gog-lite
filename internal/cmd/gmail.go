@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/mail"
 	"os"
 	"strings"
 
@@ -105,7 +106,7 @@ type GmailSendCmd struct {
 	BCC       string `name:"bcc" help:"BCC email addresses (comma-separated)."`
 }
 
-func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
+func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 	body := c.Body
 
 	if c.BodyStdin {
@@ -129,6 +130,18 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 	} {
 		if err := validateHeaderValue(hv.name, hv.value); err != nil {
 			return output.WriteError(output.ExitCodeError, "invalid_header", err.Error())
+		}
+	}
+	for _, av := range []struct {
+		name  string
+		value string
+	}{
+		{name: "to", value: c.To},
+		{name: "cc", value: c.CC},
+		{name: "bcc", value: c.BCC},
+	} {
+		if err := validateAddressList(av.name, av.value); err != nil {
+			return output.WriteError(output.ExitCodeError, "invalid_recipient", err.Error())
 		}
 	}
 
@@ -160,6 +173,14 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 	if err != nil {
 		return writeGoogleAPIError("send_error", err)
 	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "gmail.send",
+		Account: normalizeEmail(c.Account),
+		Target:  c.To,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
 		"id":        msg.Id,
@@ -171,6 +192,22 @@ func (c *GmailSendCmd) Run(ctx context.Context, _ *RootFlags) error {
 func validateHeaderValue(name, value string) error {
 	if strings.ContainsAny(value, "\r\n") {
 		return fmt.Errorf("%s must not contain CR or LF characters", name)
+	}
+
+	return nil
+}
+
+func validateAddressList(name, value string) error {
+	if strings.TrimSpace(value) == "" {
+		if name == "to" {
+			return fmt.Errorf("%s must not be empty", name)
+		}
+
+		return nil
+	}
+
+	if _, err := mail.ParseAddressList(value); err != nil {
+		return fmt.Errorf("%s contains invalid email address list: %v", name, err)
 	}
 
 	return nil

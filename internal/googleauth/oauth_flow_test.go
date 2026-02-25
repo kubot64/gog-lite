@@ -1,9 +1,9 @@
 package googleauth
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -150,11 +150,22 @@ func TestScopesEqual_False(t *testing.T) {
 	}
 }
 
-func TestEmailFromToken_Valid(t *testing.T) {
-	idToken := makeIDToken(t, map[string]any{"email": "you@example.com"})
-	tok := (&oauth2.Token{}).WithExtra(map[string]any{"id_token": idToken})
+func TestEmailFromUserInfo_Valid(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"email":"you@example.com","email_verified":true}`))
+	}))
+	defer server.Close()
 
-	email, err := emailFromToken(tok)
+	old := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = server.URL
+	defer func() { oauthUserInfoEndpoint = old }()
+
+	tok := &oauth2.Token{AccessToken: "test-token"}
+	email, err := emailFromUserInfo(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,16 +174,25 @@ func TestEmailFromToken_Valid(t *testing.T) {
 	}
 }
 
-func TestEmailFromToken_MissingIDToken(t *testing.T) {
-	_, err := emailFromToken((&oauth2.Token{}).WithExtra(map[string]any{}))
+func TestEmailFromUserInfo_MissingAccessToken(t *testing.T) {
+	_, err := emailFromUserInfo(context.Background(), &oauth2.Token{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
-func TestEmailFromToken_InvalidToken(t *testing.T) {
-	tok := (&oauth2.Token{}).WithExtra(map[string]any{"id_token": "not-a-jwt"})
-	_, err := emailFromToken(tok)
+func TestEmailFromUserInfo_Unverified(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"email":"you@example.com","email_verified":false}`))
+	}))
+	defer server.Close()
+
+	old := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = server.URL
+	defer func() { oauthUserInfoEndpoint = old }()
+
+	_, err := emailFromUserInfo(context.Background(), &oauth2.Token{AccessToken: "test-token"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -217,17 +237,4 @@ func TestLoadManualStateByState_NotFound(t *testing.T) {
 	if ok {
 		t.Fatal("expected ok=false")
 	}
-}
-
-func makeIDToken(t *testing.T, payload map[string]any) string {
-	t.Helper()
-
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	b, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-	body := base64.RawURLEncoding.EncodeToString(b)
-
-	return fmt.Sprintf("%s.%s.signature", header, body)
 }

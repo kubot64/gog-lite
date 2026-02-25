@@ -33,3 +33,33 @@ func TestValidateHeaderValue_RejectsCRLF(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAddressList_Valid(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+	}{
+		{name: "to", value: "alice@example.com"},
+		{name: "cc", value: "Alice <alice@example.com>, bob@example.com"},
+		{name: "bcc", value: ""},
+	} {
+		if err := validateAddressList(tc.name, tc.value); err != nil {
+			t.Errorf("validateAddressList(%q, %q): unexpected error: %v", tc.name, tc.value, err)
+		}
+	}
+}
+
+func TestValidateAddressList_Invalid(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+	}{
+		{name: "to", value: ""},
+		{name: "to", value: "not-an-email"},
+		{name: "cc", value: "alice@example.com, bad"},
+	} {
+		if err := validateAddressList(tc.name, tc.value); err == nil {
+			t.Errorf("validateAddressList(%q, %q): expected error, got nil", tc.name, tc.value)
+		}
+	}
+}

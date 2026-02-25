@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"google.golang.org/api/docs/v1"
@@ -92,7 +93,7 @@ type DocsCreateCmd struct {
 	ContentStdin bool   `name:"content-stdin" help:"Read initial content from stdin."`
 }
 
-func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
+func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 	content := c.Content
 
 	if c.ContentStdin {
@@ -102,6 +103,27 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 		}
 
 		content = s
+	}
+
+	dryRun := root.DryRun
+	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "docs.create",
+			Account: normalizeEmail(c.Account),
+			Target:  c.Title,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
+		return output.WriteJSON(os.Stdout, map[string]any{
+			"dry_run": true,
+			"action":  "docs.create",
+			"params": map[string]any{
+				"account":        c.Account,
+				"title":          c.Title,
+				"content_length": len(content),
+			},
+		})
 	}
 
 	docSvc, err := googleapi.NewDocs(ctx, c.Account)
@@ -133,6 +155,14 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 			return writeGoogleAPIError("docs_write_error", err)
 		}
 	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "docs.create",
+		Account: normalizeEmail(c.Account),
+		Target:  created.DocumentId,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
 		"id":    created.DocumentId,
@@ -143,10 +173,11 @@ func (c *DocsCreateCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 // DocsExportCmd exports a document to PDF, DOCX, TXT, ODT, or HTML.
 type DocsExportCmd struct {
-	Account string `name:"account" required:"" short:"a" help:"Google account email."`
-	DocID   string `name:"doc-id" required:"" help:"Google Docs document ID."`
-	Format  string `name:"format" required:"" help:"Export format: pdf, docx, txt, odt, html."`
-	Output  string `name:"output" required:"" help:"Output file path."`
+	Account   string `name:"account" required:"" short:"a" help:"Google account email."`
+	DocID     string `name:"doc-id" required:"" help:"Google Docs document ID."`
+	Format    string `name:"format" required:"" help:"Export format: pdf, docx, txt, odt, html."`
+	Output    string `name:"output" required:"" help:"Output file path."`
+	Overwrite bool   `name:"overwrite" help:"Allow overwriting an existing output file (default: disabled)."`
 }
 
 var exportMIMETypes = map[string]string{
@@ -157,11 +188,34 @@ var exportMIMETypes = map[string]string{
 	"html": "text/html",
 }
 
-func (c *DocsExportCmd) Run(ctx context.Context, _ *RootFlags) error {
+func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 	mimeType, ok := exportMIMETypes[strings.ToLower(c.Format)]
 	if !ok {
 		return output.WriteError(output.ExitCodeError, "invalid_format",
 			fmt.Sprintf("unsupported format %q; use pdf, docx, txt, odt, or html", c.Format))
+	}
+
+	dryRun := root.DryRun
+	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "docs.export",
+			Account: normalizeEmail(c.Account),
+			Target:  c.Output,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
+		return output.WriteJSON(os.Stdout, map[string]any{
+			"dry_run": true,
+			"action":  "docs.export",
+			"params": map[string]any{
+				"account":   c.Account,
+				"doc_id":    c.DocID,
+				"format":    c.Format,
+				"output":    c.Output,
+				"overwrite": c.Overwrite,
+			},
+		})
 	}
 
 	driveSvc, err := googleapi.NewDrive(ctx, c.Account)
@@ -176,16 +230,17 @@ func (c *DocsExportCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	defer resp.Body.Close()
 
-	f, err := os.Create(c.Output) //nolint:gosec
-	if err != nil {
-		return output.WriteError(output.ExitCodeError, "file_create_error", fmt.Sprintf("create output file: %v", err))
-	}
-
-	defer f.Close()
-
-	written, err := io.Copy(f, resp.Body)
+	written, err := writeFileAtomically(c.Output, resp.Body, c.Overwrite)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "file_write_error", fmt.Sprintf("write output file: %v", err))
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "docs.export",
+		Account: normalizeEmail(c.Account),
+		Target:  c.Output,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
@@ -199,11 +254,12 @@ func (c *DocsExportCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 // DocsWriteCmd writes content to a document.
 type DocsWriteCmd struct {
-	Account      string `name:"account" required:"" short:"a" help:"Google account email."`
-	DocID        string `name:"doc-id" required:"" help:"Google Docs document ID."`
-	Content      string `name:"content" help:"Content to write."`
-	ContentStdin bool   `name:"content-stdin" help:"Read content from stdin."`
-	Replace      bool   `name:"replace" help:"Replace all existing content."`
+	Account        string `name:"account" required:"" short:"a" help:"Google account email."`
+	DocID          string `name:"doc-id" required:"" help:"Google Docs document ID."`
+	Content        string `name:"content" help:"Content to write."`
+	ContentStdin   bool   `name:"content-stdin" help:"Read content from stdin."`
+	Replace        bool   `name:"replace" help:"Replace all existing content."`
+	ConfirmReplace bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
 }
 
 func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -219,16 +275,29 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
+	if c.Replace && !c.ConfirmReplace {
+		return output.WriteError(output.ExitCodeError, "replace_requires_confirmation",
+			"--replace requires --confirm-replace to reduce destructive mistakes")
+	}
 
 	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "docs.write",
+			Account: normalizeEmail(c.Account),
+			Target:  c.DocID,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
 		return output.WriteJSON(os.Stdout, map[string]any{
 			"dry_run": true,
 			"action":  "docs.write",
 			"params": map[string]any{
-				"account":        c.Account,
-				"doc_id":         c.DocID,
-				"content_length": len(content),
-				"replace":        c.Replace,
+				"account":         c.Account,
+				"doc_id":          c.DocID,
+				"content_length":  len(content),
+				"replace":         c.Replace,
+				"confirm_replace": c.ConfirmReplace,
 			},
 		})
 	}
@@ -283,6 +352,14 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}).Do(); err != nil {
 		return writeGoogleAPIError("docs_write_error", err)
 	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "docs.write",
+		Account: normalizeEmail(c.Account),
+		Target:  c.DocID,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
 		"written": true,
@@ -304,6 +381,14 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 	dryRun := root.DryRun
 
 	if dryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "docs.find_replace",
+			Account: normalizeEmail(c.Account),
+			Target:  c.DocID,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
 		return output.WriteJSON(os.Stdout, map[string]any{
 			"dry_run": true,
 			"action":  "docs.find_replace",
@@ -339,6 +424,14 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 	resp, err := docSvc.Documents.BatchUpdate(c.DocID, req).Do()
 	if err != nil {
 		return writeGoogleAPIError("docs_find_replace_error", err)
+	}
+	if err := appendAuditLog(root.AuditLog, auditEntry{
+		Action:  "docs.find_replace",
+		Account: normalizeEmail(c.Account),
+		Target:  c.DocID,
+		DryRun:  false,
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
 	occurrences := int64(0)
@@ -387,6 +480,71 @@ func docBodyLength(doc *docs.Document) int64 {
 	last := doc.Body.Content[len(doc.Body.Content)-1]
 
 	return last.EndIndex
+}
+
+func writeFileAtomically(outputPath string, src io.Reader, overwrite bool) (int64, error) {
+	if strings.TrimSpace(outputPath) == "" {
+		return 0, fmt.Errorf("output path is empty")
+	}
+
+	if !overwrite {
+		if _, err := os.Stat(outputPath); err == nil {
+			return 0, fmt.Errorf("output file already exists; pass --overwrite to replace it")
+		} else if !os.IsNotExist(err) {
+			return 0, fmt.Errorf("check output file: %w", err)
+		}
+	}
+
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return 0, fmt.Errorf("ensure output dir: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(dir, ".gog-lite-export-*")
+	if err != nil {
+		return 0, fmt.Errorf("create temp file: %w", err)
+	}
+
+	tmpPath := tmp.Name()
+	cleanupTmp := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanupTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	written, err := io.Copy(tmp, src)
+	if err != nil {
+		return 0, err
+	}
+	if err := tmp.Sync(); err != nil {
+		return 0, fmt.Errorf("sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return 0, fmt.Errorf("close temp file: %w", err)
+	}
+
+	if overwrite {
+		if err := os.Rename(tmpPath, outputPath); err != nil {
+			return 0, fmt.Errorf("replace output file: %w", err)
+		}
+		cleanupTmp = false
+		return written, nil
+	}
+
+	if _, err := os.Stat(outputPath); err == nil {
+		return 0, fmt.Errorf("output file already exists; pass --overwrite to replace it")
+	} else if !os.IsNotExist(err) {
+		return 0, fmt.Errorf("check output file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		return 0, fmt.Errorf("commit output file: %w", err)
+	}
+	cleanupTmp = false
+
+	return written, nil
 }
 
 func docsAuthError(err error) error {

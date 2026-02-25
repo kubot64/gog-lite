@@ -21,11 +21,12 @@ const (
 )
 
 var (
-	errMissingEmail        = errors.New("missing email")
-	errMissingRefreshToken = errors.New("missing refresh token")
-	errNoTTY               = errors.New("no TTY available for keyring file backend password prompt")
-	errKeyringTimeout      = errors.New("keyring connection timed out")
-	keyringOpenFunc        = keyring.Open
+	errMissingEmail           = errors.New("missing email")
+	errMissingRefreshToken    = errors.New("missing refresh token")
+	errNoTTY                  = errors.New("no TTY available for keyring file backend password prompt")
+	errKeyringTimeout         = errors.New("keyring connection timed out")
+	errMissingKeyringPassword = errors.New("GOG_LITE_KEYRING_PASSWORD must be set when using file keyring backend")
+	keyringOpenFunc           = keyring.Open
 )
 
 // Token is stored in the keyring for each account.
@@ -80,6 +81,9 @@ func openKeyring() (keyring.Keyring, error) {
 	case "keychain":
 		backends = []keyring.BackendType{keyring.KeychainBackend}
 	case "file":
+		if err := requireFileBackendPassword(backendEnv); err != nil {
+			return nil, err
+		}
 		backends = []keyring.BackendType{keyring.FileBackend}
 	default:
 		// On Linux with no D-Bus, force file backend to avoid hangs.
@@ -90,7 +94,7 @@ func openKeyring() (keyring.Keyring, error) {
 	}
 
 	cfg := keyring.Config{
-		ServiceName:             config.AppName,
+		ServiceName:              config.AppName,
 		KeychainTrustApplication: false,
 		AllowedBackends:          backends,
 		FileDir:                  keyringDir,
@@ -109,6 +113,14 @@ func openKeyring() (keyring.Keyring, error) {
 	}
 
 	return ring, nil
+}
+
+func requireFileBackendPassword(backendEnv string) error {
+	if backendEnv == "file" && strings.TrimSpace(os.Getenv(keyringPasswordEnv)) == "" {
+		return errMissingKeyringPassword
+	}
+
+	return nil
 }
 
 type keyringResult struct {
