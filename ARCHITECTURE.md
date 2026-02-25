@@ -192,11 +192,11 @@ stderr  → エラー（常に {"error": "...", "code": "..."} 形式の JSON）
 ├── audit.log            # 書き込み操作の監査ログ（JSONL）
 ├── approvals/           # 承認トークンファイル（使い捨て）
 │   └── <token>.json
-└── ratelimit/           # レートリミット状態
-    ├── gmail.search.json
-    └── ...
-keyring/                 # OS キーリング or ファイルバックエンド
-└── <encrypted tokens>
+├── ratelimit/           # レートリミット状態
+│   ├── gmail.search.json
+│   └── ...
+└── keyring/             # OS キーリング or ファイルバックエンド
+    └── <encrypted tokens>
 ```
 
 > `credentials.json` は Google Cloud Console からダウンロードしたものをそのまま配置します。
