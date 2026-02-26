@@ -28,6 +28,41 @@ func TestGmailSearchCmd_PolicyDenied(t *testing.T) {
 	})
 }
 
+func TestGmailThreadCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"calendar.list"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &GmailThreadCmd{
+		Account:  "a@example.com",
+		ThreadID: "thread-123",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
+func TestGmailLabelsCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"calendar.list"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &GmailLabelsCmd{
+		Account: "a@example.com",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
 func TestCalendarListCmd_PolicyDenied(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
@@ -46,6 +81,42 @@ func TestCalendarListCmd_PolicyDenied(t *testing.T) {
 	})
 }
 
+func TestCalendarCalendarsCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"gmail.search"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &CalendarCalendarsCmd{
+		Account: "a@example.com",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
+func TestCalendarGetCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"gmail.search"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &CalendarGetCmd{
+		Account:    "a@example.com",
+		EventID:    "event-123",
+		CalendarID: "primary",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
 func TestDocsCatCmd_PolicyDenied(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
@@ -56,6 +127,24 @@ func TestDocsCatCmd_PolicyDenied(t *testing.T) {
 	}
 
 	cmd := &DocsCatCmd{
+		Account: "a@example.com",
+		DocID:   "doc-123",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
+func TestDocsInfoCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"gmail.search"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &DocsInfoCmd{
 		Account: "a@example.com",
 		DocID:   "doc-123",
 	}
@@ -83,6 +172,24 @@ func TestSheetsGetCmd_PolicyDenied(t *testing.T) {
 	})
 }
 
+func TestSheetsInfoCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"gmail.search"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &SheetsInfoCmd{
+		Account:       "a@example.com",
+		SpreadsheetID: "sp-123",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
 func TestSlidesGetCmd_PolicyDenied(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
@@ -93,6 +200,24 @@ func TestSlidesGetCmd_PolicyDenied(t *testing.T) {
 	}
 
 	cmd := &SlidesGetCmd{
+		Account:        "a@example.com",
+		PresentationID: "pres-123",
+	}
+	assertPolicyDenied(t, func() error {
+		return cmd.Run(context.Background(), &RootFlags{})
+	})
+}
+
+func TestSlidesInfoCmd_PolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{AllowedActions: []string{"gmail.search"}}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &SlidesInfoCmd{
 		Account:        "a@example.com",
 		PresentationID: "pres-123",
 	}

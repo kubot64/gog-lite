@@ -224,6 +224,9 @@ func writeApprovalTokenBytes(path string, data []byte) error {
 	if err := tmp.Chmod(0o600); err != nil {
 		return fmt.Errorf("chmod temp approval token: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync temp approval token: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp approval token: %w", err)
 	}
