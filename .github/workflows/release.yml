@@ -14,22 +14,12 @@ jobs:
       tag: ${{ steps.calver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Calculate next CalVer tag
+      - name: Generate CalVer tag
         id: calver
         run: |
-          set -euo pipefail
-          PREFIX="v$(date -u +%Y.%m)"
-          LAST=$(git tag -l "${PREFIX}.*" --sort=-v:refname | head -n1)
-          if [ -z "$LAST" ]; then
-            PATCH=1
-          else
-            PATCH=$(( ${LAST##*.} + 1 ))
-          fi
-          TAG="${PREFIX}.${PATCH}"
+          TAG="v$(date -u +%Y.%m%d.%H%M)"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Next tag: ${TAG}"
+          echo "Tag: ${TAG}"
       - name: Push tag
         run: |
           git tag "${{ steps.calver.outputs.tag }}"

@@ -36,8 +36,8 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~
 
 ## バージョン運用
 
-- CalVer `vYYYY.MM.PATCH`（例: `v2026.02.1`）を採用。
-- PATCH は GitHub Actions の Release ワークフローが自動採番する。
+- CalVer `vYYYY.MMDD.HHmm`（例: `v2026.0226.1430`）を採用。
+- タグは GitHub Actions の Release ワークフローが実行時刻から自動生成する。
 - リリースは GitHub UI または CLI からワークフローを実行するだけ:
 
 ```bash
