@@ -14,7 +14,7 @@ import (
 
 const (
 	scopeGmailReadonly    = "https://www.googleapis.com/auth/gmail.readonly"
-	scopeGmailSend        = "https://www.googleapis.com/auth/gmail.send"
+	scopeGmailCompose     = "https://www.googleapis.com/auth/gmail.compose"
 	scopeCalendarReadonly = "https://www.googleapis.com/auth/calendar.readonly"
 	scopeCalendarWrite    = "https://www.googleapis.com/auth/calendar"
 	scopeDocsReadonly     = "https://www.googleapis.com/auth/documents.readonly"
@@ -45,7 +45,7 @@ func NewGmailReadOnly(ctx context.Context, email string) (*gmail.Service, error)
 }
 
 func NewGmailWrite(ctx context.Context, email string) (*gmail.Service, error) {
-	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceGmail), email, []string{scopeGmailSend})
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceGmail), email, []string{scopeGmailCompose})
 	if err != nil {
 		return nil, fmt.Errorf("gmail options: %w", err)
 	}
