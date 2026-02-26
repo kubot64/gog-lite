@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 )
@@ -27,14 +28,14 @@ type CLI struct {
 }
 
 // Execute parses CLI arguments and runs the selected command.
-func Execute(ctx context.Context) error {
+func Execute(ctx context.Context, version string) error {
 	cli := &CLI{}
 
 	k, err := kong.New(cli,
 		kong.Name("gog-lite"),
 		kong.Description("AI-agent-friendly CLI for Gmail, Calendar, and Docs."),
 		kong.UsageOnError(),
-		kong.Vars{"version": "0.1.0"},
+		kong.Vars{"version": resolveVersion(version)},
 	)
 	if err != nil {
 		return fmt.Errorf("create parser: %w", err)
@@ -50,6 +51,15 @@ func Execute(ctx context.Context) error {
 	kctx.Bind(&cli.RootFlags)
 
 	return kctx.Run()
+}
+
+func resolveVersion(version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return "dev"
+	}
+
+	return v
 }
 
 // collectAllPages calls fn repeatedly until nextPageToken is empty or allPages is false.

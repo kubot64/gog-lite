@@ -17,7 +17,7 @@
 ```bash
 git clone https://github.com/kubot64/gog-lite
 cd gog-lite
-go build -o ~/bin/gog-lite ./cmd/gog-lite/
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~/bin/gog-lite ./cmd/gog-lite/
 ```
 
 `~/bin` にパスが通っていない場合は以下を `~/.zshrc` または `~/.bashrc` に追加してください。
@@ -30,7 +30,7 @@ export PATH="$HOME/bin:$PATH"
 
 ```bash
 gog-lite --version
-# gog-lite 0.1.0
+# v0.2.0 / dev / <tag>-<sha> など（ビルド時に注入した値）
 ```
 
 ---
