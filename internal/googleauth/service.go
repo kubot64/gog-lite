@@ -15,6 +15,8 @@ const (
 	ServiceCalendar Service = "calendar"
 	ServiceDocs     Service = "docs"
 	ServiceDrive    Service = "drive"
+	ServiceSheets   Service = "sheets"
+	ServiceSlides   Service = "slides"
 )
 
 const (
@@ -41,11 +43,17 @@ var serviceScopes = map[Service][]string{
 	ServiceDrive: {
 		"https://www.googleapis.com/auth/drive",
 	},
+	ServiceSheets: {
+		"https://www.googleapis.com/auth/spreadsheets",
+	},
+	ServiceSlides: {
+		"https://www.googleapis.com/auth/presentations",
+	},
 }
 
 // AllServices returns all supported services.
 func AllServices() []Service {
-	return []Service{ServiceGmail, ServiceCalendar, ServiceDocs, ServiceDrive}
+	return []Service{ServiceGmail, ServiceCalendar, ServiceDocs, ServiceDrive, ServiceSheets, ServiceSlides}
 }
 
 // ParseService parses a service name string.
@@ -55,7 +63,7 @@ func ParseService(s string) (Service, error) {
 		return svc, nil
 	}
 
-	return "", fmt.Errorf("%w %q (expected gmail, calendar, docs, or drive)", errUnknownService, s)
+	return "", fmt.Errorf("%w %q (expected gmail, calendar, docs, drive, sheets, or slides)", errUnknownService, s)
 }
 
 // Scopes returns the OAuth2 scopes required for the given service.

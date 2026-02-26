@@ -25,6 +25,8 @@ type CLI struct {
 	Gmail     GmailCmd         `cmd:"" help:"Gmail operations."`
 	Calendar  CalendarCmd      `cmd:"" help:"Google Calendar operations."`
 	Docs      DocsCmd          `cmd:"" help:"Google Docs operations."`
+	Sheets    SheetsCmd        `cmd:"" help:"Google Sheets operations."`
+	Slides    SlidesCmd        `cmd:"" help:"Google Slides operations."`
 }
 
 // Execute parses CLI arguments and runs the selected command.

@@ -311,6 +311,154 @@ gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace
 
 ---
 
+### sheets
+
+Spreadsheet ID は Google Sheets の URL から取得：
+`https://docs.google.com/spreadsheets/d/**SPREADSHEET_ID**/edit`
+
+#### info
+
+```bash
+gog-lite sheets info --account EMAIL --spreadsheet-id SPREADSHEET_ID
+```
+
+```json
+{
+  "spreadsheet_id": "...",
+  "title": "売上データ",
+  "url": "https://docs.google.com/spreadsheets/d/.../edit",
+  "sheets": [
+    {"sheet_id": 0, "title": "Sheet1", "row_count": 1000, "column_count": 26}
+  ]
+}
+```
+
+#### get
+
+```bash
+gog-lite sheets get --account EMAIL --spreadsheet-id SPREADSHEET_ID --range "Sheet1!A1:C10"
+```
+
+```json
+{
+  "spreadsheet_id": "...",
+  "range": "Sheet1!A1:C3",
+  "values": [["Name", "Age"], ["Alice", "30"]]
+}
+```
+
+#### update
+
+```bash
+gog-lite sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+
+# dry-run で確認
+gog-lite --dry-run sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+```
+
+```json
+{
+  "spreadsheet_id": "...",
+  "updated_range": "Sheet1!A1:B1",
+  "updated_rows": 1,
+  "updated_columns": 2,
+  "updated_cells": 2
+}
+```
+
+#### append
+
+```bash
+gog-lite sheets append --account EMAIL --spreadsheet-id SPREADSHEET_ID \
+  --range Sheet1 --values '[["Bob",25]]'
+
+# stdin から読み込み
+echo '[["Bob",25]]' | gog-lite sheets append --account EMAIL \
+  --spreadsheet-id SPREADSHEET_ID --range Sheet1 --values-stdin
+```
+
+```json
+{
+  "spreadsheet_id": "...",
+  "table_range": "Sheet1!A1:B5",
+  "updated_range": "Sheet1!A6:B6",
+  "updated_rows": 1
+}
+```
+
+---
+
+### slides
+
+Presentation ID は Google Slides の URL から取得：
+`https://docs.google.com/presentation/d/**PRESENTATION_ID**/edit`
+
+#### info
+
+```bash
+gog-lite slides info --account EMAIL --presentation-id PRESENTATION_ID
+```
+
+```json
+{
+  "presentation_id": "...",
+  "title": "Q1 レポート",
+  "url": "https://docs.google.com/presentation/d/.../edit",
+  "slide_count": 5,
+  "slides": [
+    {"object_id": "p1", "slide_number": 1},
+    {"object_id": "p2", "slide_number": 2}
+  ]
+}
+```
+
+#### get
+
+```bash
+# 全スライドのテキストを取得
+gog-lite slides get --account EMAIL --presentation-id PRESENTATION_ID
+
+# 特定スライドのみ
+gog-lite slides get --account EMAIL --presentation-id PRESENTATION_ID --page-id p1
+```
+
+全スライド取得時の出力：
+```json
+{
+  "presentation_id": "...",
+  "slides": [
+    {"object_id": "p1", "slide_number": 1, "texts": ["タイトル", "サブタイトル"]},
+    {"object_id": "p2", "slide_number": 2, "texts": ["本文"]}
+  ]
+}
+```
+
+page-id 指定時の出力：
+```json
+{"object_id": "p1", "texts": ["タイトル", "サブタイトル"]}
+```
+
+#### write
+
+テキストの検索・置換（`ReplaceAllText`）を行う。
+
+```bash
+gog-lite slides write --account EMAIL --presentation-id PRESENTATION_ID \
+  --find "{{NAME}}" --replace "Alice"
+
+# dry-run で確認
+gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_ID \
+  --find "{{NAME}}" --replace "Alice"
+```
+
+```json
+{"presentation_id": "...", "occurrences_changed": 3}
+```
+
+---
+
 ## エラー処理
 
 全エラーは **stderr に JSON**、**stdout は空**、**終了コード != 0**。
