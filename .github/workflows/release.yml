@@ -10,6 +10,7 @@ permissions:
 jobs:
   tag:
     name: Create CalVer Tag
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.calver.outputs.tag }}
@@ -67,8 +68,10 @@ jobs:
           REPO="kubot64/gog-lite"
           BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
+          curl -fsSL -o checksums.txt "${BASE_URL}/checksums.txt"
+
           get_sha256() {
-            curl -sL "${BASE_URL}/$1" | sha256sum | awk '{print $1}'
+            grep "$1" checksums.txt | awk '{print $1}'
           }
 
           SHA_DARWIN_ARM64=$(get_sha256 "gog-lite_${VERSION}_darwin_arm64.tar.gz")
