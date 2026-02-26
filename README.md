@@ -20,7 +20,21 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 ```bash
 git clone https://github.com/kubot64/gog-lite
 cd gog-lite
-go build -o ~/bin/gog-lite ./cmd/gog-lite/
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~/bin/gog-lite ./cmd/gog-lite/
+```
+
+タグがない開発ブランチでは `--version` は `dev`（または `git describe` の値）になります。
+
+## バージョン運用
+
+- `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
+- リリース時は Git タグ（例: `v0.2.0`）を作成し、タグ値を version に使う。
+- 例:
+
+```bash
+VERSION=$(git describe --tags --always --dirty)
+go build -ldflags "-X main.version=$VERSION" -o ~/bin/gog-lite ./cmd/gog-lite/
+gog-lite --version
 ```
 
 ## セットアップ
