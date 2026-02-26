@@ -4,14 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 const (
-	AppName        = "gog-lite"
-	clientIDEnvVar = "GOG_LITE_CLIENT_ID"     //nolint:gosec
-	clientSecretEnvVar = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
+	AppName              = "gog-lite"
+	clientIDEnvVar       = "GOG_LITE_CLIENT_ID"     //nolint:gosec
+	clientSecretEnvVar   = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
+	keychainClientID     = "GOG_LITE_CLIENT_ID"     //nolint:gosec
+	keychainClientSecret = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
+)
+
+var (
+	currentGOOS        = runtime.GOOS
+	lookupKeychainItem = defaultLookupKeychainItem
 )
 
 // File is the configuration stored at ~/.config/gog-lite/config.json.
@@ -131,6 +140,9 @@ func ReadCredentials() (ClientCredentials, error) {
 	if clientID != "" && clientSecret != "" {
 		return ClientCredentials{ClientID: clientID, ClientSecret: clientSecret}, nil
 	}
+	if creds, ok := readCredentialsFromKeychain(); ok {
+		return creds, nil
+	}
 
 	path, err := CredentialsPath()
 	if err != nil {
@@ -172,6 +184,44 @@ func ReadCredentials() (ClientCredentials, error) {
 	}
 
 	return c, nil
+}
+
+func readCredentialsFromKeychain() (ClientCredentials, bool) {
+	if currentGOOS != "darwin" {
+		return ClientCredentials{}, false
+	}
+
+	clientID, err := lookupKeychainItem(keychainClientID)
+	if err != nil {
+		return ClientCredentials{}, false
+	}
+	clientSecret, err := lookupKeychainItem(keychainClientSecret)
+	if err != nil {
+		return ClientCredentials{}, false
+	}
+
+	clientID = strings.TrimSpace(clientID)
+	clientSecret = strings.TrimSpace(clientSecret)
+	if clientID == "" || clientSecret == "" {
+		return ClientCredentials{}, false
+	}
+
+	return ClientCredentials{ClientID: clientID, ClientSecret: clientSecret}, true
+}
+
+func defaultLookupKeychainItem(service string) (string, error) {
+	user := strings.TrimSpace(os.Getenv("USER"))
+	if user == "" {
+		return "", fmt.Errorf("USER environment variable is empty")
+	}
+
+	cmd := exec.Command("security", "find-generic-password", "-a", user, "-s", service, "-w")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(out)), nil
 }
 
 // WriteCredentials writes the credentials to ~/.config/gog-lite/credentials.json.

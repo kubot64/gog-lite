@@ -48,7 +48,7 @@ gog-lite --version
 3. 「Google Auth Platform」→「OAuth 同意画面（Audience）」でアプリ情報を入力
 4. 外部ユーザー（External）でテスト中の場合は「Test users」に利用アカウントを追加
 5. 「認証情報」→「OAuthクライアントID」を作成（種類：**デスクトップアプリ**）
-6. JSONをダウンロードして配置（`os.UserConfigDir()` 配下）：
+6. JSONをダウンロードして一時配置（`os.UserConfigDir()` 配下）：
 
 ```bash
 # macOS
@@ -58,6 +58,23 @@ cp ~/Downloads/client_secret_*.json "$HOME/Library/Application Support/gog-lite/
 # Linux
 mkdir -p ~/.config/gog-lite
 cp ~/Downloads/client_secret_*.json ~/.config/gog-lite/credentials.json
+```
+
+7. （macOS推奨）`client_id` / `client_secret` を Keychain へ移す：
+
+```bash
+security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_ID -w '<YOUR_CLIENT_ID>' -U
+security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_SECRET -w '<YOUR_CLIENT_SECRET>' -U
+```
+
+8. Keychain 登録後は `credentials.json` を削除してよい（環境変数と Keychain を優先参照）：
+
+```bash
+# macOS
+rm "$HOME/Library/Application Support/gog-lite/credentials.json"
+
+# Linux
+rm ~/.config/gog-lite/credentials.json
 ```
 
 ### 2. アカウント認証（2ステップ）
@@ -211,6 +228,7 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 | `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード |
 
 `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の両方が設定されている場合、credentials.json は不要。
+macOS では上記2値を Keychain に保存しておけば、環境変数未設定でもフォールバックで参照できる。
 `GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
 
 ## 対応サービスと必要スコープ

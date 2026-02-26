@@ -73,7 +73,7 @@ gog-lite は Google の OAuth を使って Gmail / Calendar / Docs にアクセ�
 > `このアプリは Google で確認されていません` はテスト中アプリでは通常表示されます。  
 > 自分で作成したアプリであれば「続行」で問題ありません。
 
-### 2-5. 認証情報ファイルを配置する
+### 2-5. 認証情報ファイルを一時配置する
 
 ```bash
 # macOS
@@ -84,6 +84,17 @@ cp ~/Downloads/client_secret_*.json "$HOME/Library/Application Support/gog-lite/
 mkdir -p ~/.config/gog-lite
 cp ~/Downloads/client_secret_*.json ~/.config/gog-lite/credentials.json
 ```
+
+### 2-6. （macOS推奨）Keychain に client_id / client_secret を登録する
+
+`credentials.json` を常駐させたくない場合、以下で Keychain に保存できます。
+
+```bash
+security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_ID -w '<YOUR_CLIENT_ID>' -U
+security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_SECRET -w '<YOUR_CLIENT_SECRET>' -U
+```
+
+> `YOUR_CLIENT_ID` / `YOUR_CLIENT_SECRET` はダウンロードした JSON の値を使用してください。
 
 ---
 
@@ -127,6 +138,18 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs \
   "email": "you@gmail.com",
   "services": ["gmail", "calendar", "docs"]
 }
+```
+
+### 3-補足. 認証後に `credentials.json` を削除する（任意）
+
+環境変数または macOS Keychain で `client_id` / `client_secret` を供給できる場合は削除可能です。
+
+```bash
+# macOS
+rm "$HOME/Library/Application Support/gog-lite/credentials.json"
+
+# Linux
+rm ~/.config/gog-lite/credentials.json
 ```
 
 ---
@@ -177,8 +200,13 @@ gog-lite calendar list --account you@gmail.com \
 
 ### `credentials.json not found` と出る
 
-`gog-lite` は `os.UserConfigDir()` 配下の `gog-lite/credentials.json` を参照します。  
-macOS と Linux でパスが異なるため、両方確認してください。
+`gog-lite` は次の順で OAuth クライアント情報を探します。
+
+1. `GOG_LITE_CLIENT_ID` + `GOG_LITE_CLIENT_SECRET`（両方）
+2. macOS の場合は Keychain（`GOG_LITE_CLIENT_ID` / `GOG_LITE_CLIENT_SECRET`）
+3. `os.UserConfigDir()/gog-lite/credentials.json`
+
+そのため、環境変数または Keychain を設定していれば `credentials.json` は不要です。
 
 ```bash
 # macOS
