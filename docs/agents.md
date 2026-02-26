@@ -27,8 +27,14 @@ Google Cloud Console で「デスクトップアプリ」タイプの OAuth2 ク
 ダウンロードした JSON を以下に配置する（または `client_id`/`client_secret` を直接記述）：
 
 ```
+# macOS:
+$HOME/Library/Application Support/gog-lite/credentials.json
+
+# Linux:
 ~/.config/gog-lite/credentials.json
 ```
+
+External のテスト中アプリでは、OAuth 同意画面の Test users に利用アカウント追加が必要。
 
 ### 2. アカウント認証（2ステップ）
 

@@ -64,9 +64,23 @@ gog-lite は Google の OAuth を使って Gmail / Calendar / Docs にアクセ�
 4. 任意の名前をつけて **「作成」**
 5. ダイアログが開いたら **「JSON をダウンロード」**
 
-### 2-4. 認証情報ファイルを配置する
+### 2-4. OAuth 同意画面でテストユーザーを追加する（External の場合）
+
+1. 左メニュー → **「Google Auth Platform」→「Audience」**
+2. 画面下部の **「Test users」** で **「Add users」**
+3. 利用する Gmail（例: `you@gmail.com`）を追加して保存
+
+> `このアプリは Google で確認されていません` はテスト中アプリでは通常表示されます。  
+> 自分で作成したアプリであれば「続行」で問題ありません。
+
+### 2-5. 認証情報ファイルを配置する
 
 ```bash
+# macOS
+mkdir -p "$HOME/Library/Application Support/gog-lite"
+cp ~/Downloads/client_secret_*.json "$HOME/Library/Application Support/gog-lite/credentials.json"
+
+# Linux
 mkdir -p ~/.config/gog-lite
 cp ~/Downloads/client_secret_*.json ~/.config/gog-lite/credentials.json
 ```
@@ -163,15 +177,25 @@ gog-lite calendar list --account you@gmail.com \
 
 ### `credentials.json not found` と出る
 
-`~/.config/gog-lite/credentials.json` にファイルが存在するか確認してください。
+`gog-lite` は `os.UserConfigDir()` 配下の `gog-lite/credentials.json` を参照します。  
+macOS と Linux でパスが異なるため、両方確認してください。
 
 ```bash
+# macOS
+ls "$HOME/Library/Application Support/gog-lite/"
+
+# Linux
 ls ~/.config/gog-lite/
 ```
 
 ### `ready: false` で `token: false` になる
 
 ステップ 3 の認証が完了していません。`auth login` を最初からやり直してください。
+
+### `エラー 403: access_denied` が出る
+
+OAuth 同意画面の **Test users** に対象 Gmail が追加されていない可能性があります。  
+`Google Auth Platform -> Audience -> Test users` から追加して再実行してください。
 
 ### `keyring_error` が出る（Linux / ヘッドレス環境）
 

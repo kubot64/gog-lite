@@ -31,10 +31,17 @@ go build -o ~/bin/gog-lite ./cmd/gog-lite/
 
 1. プロジェクトを作成（または既存を使用）
 2. 必要なAPIを有効化：Gmail API / Google Calendar API / Google Docs API / Google Drive API
-3. 「認証情報」→「OAuthクライアントID」を作成（種類：**デスクトップアプリ**）
-4. JSONをダウンロードして配置：
+3. 「Google Auth Platform」→「OAuth 同意画面（Audience）」でアプリ情報を入力
+4. 外部ユーザー（External）でテスト中の場合は「Test users」に利用アカウントを追加
+5. 「認証情報」→「OAuthクライアントID」を作成（種類：**デスクトップアプリ**）
+6. JSONをダウンロードして配置（`os.UserConfigDir()` 配下）：
 
 ```bash
+# macOS
+mkdir -p "$HOME/Library/Application Support/gog-lite"
+cp ~/Downloads/client_secret_*.json "$HOME/Library/Application Support/gog-lite/credentials.json"
+
+# Linux
 mkdir -p ~/.config/gog-lite
 cp ~/Downloads/client_secret_*.json ~/.config/gog-lite/credentials.json
 ```
@@ -48,6 +55,8 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 ```
 
 ブラウザで `auth_url` を開いて認証する。リダイレクト先のURL（読み込めなくてOK）をコピーして：
+
+> `エラー 403: access_denied` が出る場合は、OAuth 同意画面の Test users に該当 Gmail を追加してください。
 
 ```bash
 # ステップ2: リダイレクトURLを渡してトークンを保存
