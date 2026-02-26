@@ -107,6 +107,107 @@ func TestApprovalTokenCmd_Valid(t *testing.T) {
 	}
 }
 
+func TestApprovalTokenCmd_ApprovalNotRequired(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	cmd := &AuthApprovalTokenCmd{
+		Account: "a@example.com",
+		Action:  "gmail.search",
+		TTL:     "10m",
+	}
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if output.ExitCode(err) != output.ExitCodeError {
+		t.Fatalf("expected ExitCodeError, got %d", output.ExitCode(err))
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err2 := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err2 != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err2, stderr)
+	}
+	if payload.Code != "approval_not_required" {
+		t.Errorf("code = %q, want %q", payload.Code, "approval_not_required")
+	}
+}
+
+func TestApprovalTokenCmd_TargetActionPolicyDenied(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	if err := config.WritePolicy(config.PolicyFile{
+		AllowedActions: []string{"auth.approval_token"},
+	}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	cmd := &AuthApprovalTokenCmd{
+		Account: "a@example.com",
+		Action:  "calendar.delete",
+		TTL:     "10m",
+	}
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if output.ExitCode(err) != output.ExitCodePermission {
+		t.Fatalf("expected ExitCodePermission, got %d", output.ExitCode(err))
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err2 := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err2 != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err2, stderr)
+	}
+	if payload.Code != "policy_denied" {
+		t.Errorf("code = %q, want %q", payload.Code, "policy_denied")
+	}
+}
+
+func TestApprovalTokenCmd_DryRun(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	cmd := &AuthApprovalTokenCmd{
+		Account: "a@example.com",
+		Action:  "calendar.delete",
+		TTL:     "10m",
+	}
+	var err error
+	stdout := captureStdout(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{DryRun: true})
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload struct {
+		DryRun bool   `json:"dry_run"`
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if !payload.DryRun {
+		t.Fatal("expected dry_run=true")
+	}
+	if payload.Action != "auth.approval_token" {
+		t.Fatalf("action = %q, want %q", payload.Action, "auth.approval_token")
+	}
+}
+
 func TestIssueApprovalToken_NegativeTTL(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)

@@ -221,6 +221,20 @@ func TestEnsureWithinAllowedOutputDir(t *testing.T) {
 	}
 }
 
+func TestEnsureWithinAllowedOutputDir_RejectsSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	linkPath := filepath.Join(base, "escape")
+	if err := os.Symlink(outside, linkPath); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	escapedPath := filepath.Join(linkPath, "out.txt")
+	if err := ensureWithinAllowedOutputDir(escapedPath, base); err == nil {
+		t.Fatal("expected symlink escape path to be rejected")
+	}
+}
+
 func TestDocsWriteReplaceRequiresConfirmation(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)

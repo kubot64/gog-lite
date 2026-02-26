@@ -34,6 +34,10 @@ type GmailSearchCmd struct {
 }
 
 func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "gmail.search"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if err := enforceRateLimit("gmail.search", 120, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
@@ -87,6 +91,10 @@ type GmailGetCmd struct {
 }
 
 func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "gmail.get"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
@@ -236,6 +244,10 @@ type GmailThreadCmd struct {
 }
 
 func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "gmail.thread"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
@@ -255,6 +267,10 @@ type GmailLabelsCmd struct {
 }
 
 func (c *GmailLabelsCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "gmail.labels"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)

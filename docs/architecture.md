@@ -68,14 +68,15 @@ flowchart TD
 
 ```json
 {
-  "allowed_actions": ["gmail.search", "calendar.get", "gmail.send"],
+  "allowed_actions": ["gmail.search", "calendar.get", "gmail.draft"],
   "blocked_accounts": ["untrusted@example.com"],
-  "require_approval_actions": ["calendar.delete", "docs.write.replace"]
+  "require_approval_actions": ["calendar.delete", "docs.write.replace", "slides.write"]
 }
 ```
 
 - `allowed_actions` が空の場合はすべてのアクションを許可（デフォルト動作）
-- `require_approval_actions` が空の場合はデフォルトセット（`calendar.delete`、`docs.write.replace`、`docs.find_replace`）を使用
+- `require_approval_actions` が空の場合はデフォルトセット（`calendar.delete`、`docs.write.replace`、`docs.find_replace`、`slides.write`）を使用
+- account を受け取る各サブコマンドは実行前に policy チェックを行う（読み取り系を含む）
 
 ### 2. 承認トークン（`internal/cmd/approval.go`）
 

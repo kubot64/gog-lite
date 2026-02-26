@@ -26,6 +26,10 @@ type SlidesInfoCmd struct {
 }
 
 func (c *SlidesInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "slides.info"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewSlidesReadOnly(ctx, c.Account)
 	if err != nil {
 		return slidesAuthError(err)
@@ -66,6 +70,10 @@ type SlidesGetCmd struct {
 }
 
 func (c *SlidesGetCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "slides.get"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if err := enforceRateLimit("slides.get", 120, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
@@ -223,7 +231,7 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
-		"presentation_id":    c.PresentationID,
+		"presentation_id":     c.PresentationID,
 		"occurrences_changed": occurrences,
 	})
 }

@@ -28,6 +28,10 @@ type CalendarCalendarsCmd struct {
 }
 
 func (c *CalendarCalendarsCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "calendar.calendars"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
@@ -75,6 +79,10 @@ type CalendarListCmd struct {
 }
 
 func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "calendar.list"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if err := enforceRateLimit("calendar.list", 120, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
@@ -173,6 +181,10 @@ type CalendarGetCmd struct {
 }
 
 func (c *CalendarGetCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "calendar.get"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)

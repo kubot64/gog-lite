@@ -105,6 +105,10 @@ gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
 gog-lite auth emergency-revoke --account EMAIL
 ```
 
+- `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須アクション（`require_approval_actions` またはデフォルト）である場合のみ発行される。
+- `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
+- `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
+
 ---
 
 ### gmail

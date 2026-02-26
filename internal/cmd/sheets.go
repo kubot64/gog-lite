@@ -28,6 +28,10 @@ type SheetsInfoCmd struct {
 }
 
 func (c *SheetsInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "sheets.info"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewSheetsReadOnly(ctx, c.Account)
 	if err != nil {
 		return sheetsAuthError(err)
@@ -80,6 +84,10 @@ type SheetsGetCmd struct {
 }
 
 func (c *SheetsGetCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "sheets.get"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if err := enforceRateLimit("sheets.get", 120, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}

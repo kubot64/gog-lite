@@ -258,9 +258,50 @@ type AuthApprovalTokenCmd struct {
 func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
 	account := normalizeEmail(c.Account)
 	action := strings.ToLower(strings.TrimSpace(c.Action))
+	if action == "" {
+		return output.WriteError(output.ExitCodeError, "invalid_action", "action is required")
+	}
+
+	if err := enforceActionPolicy(account, "auth.approval_token"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+	if err := enforceActionPolicy(account, action); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
+	required, err := actionRequiresApproval(action)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if !required {
+		return output.WriteError(output.ExitCodeError, "approval_not_required",
+			fmt.Sprintf("action %q does not require approval token", action))
+	}
+
 	ttl, err := time.ParseDuration(c.TTL)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "invalid_ttl", fmt.Sprintf("parse ttl: %v", err))
+	}
+
+	if root.DryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "auth.approval_token",
+			Account: account,
+			Target:  action,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
+
+		return output.WriteJSON(os.Stdout, map[string]any{
+			"dry_run": true,
+			"action":  "auth.approval_token",
+			"params": map[string]any{
+				"account": account,
+				"action":  action,
+				"ttl":     c.TTL,
+			},
+		})
 	}
 
 	token, expiresAt, err := issueApprovalToken(account, action, ttl)
