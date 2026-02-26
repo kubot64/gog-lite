@@ -98,7 +98,7 @@ gog-lite auth list
 gog-lite auth login  --account EMAIL [--services gmail,calendar,docs] [--auth-url URL] [--force-consent]
 gog-lite auth list
 gog-lite auth remove --account EMAIL
-gog-lite auth preflight --account EMAIL [--require-actions gmail.send,calendar.create]
+gog-lite auth preflight --account EMAIL [--require-actions gmail.draft,calendar.create]
 gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
 gog-lite auth emergency-revoke --account EMAIL
 ```
@@ -138,13 +138,15 @@ gog-lite gmail get --account EMAIL --message-id ID [--format full|metadata|minim
 
 #### send
 
+メールを下書きとして保存する（送信はしない）。実際の送信は Gmail 上で手動で行う。
+
 ```bash
 gog-lite gmail send --account EMAIL --to TO --subject SUBJECT [--body TEXT] [--body-stdin] [--cc CC] [--bcc BCC]
 echo "本文" | gog-lite gmail send --account EMAIL --to TO --subject SUBJECT --body-stdin
 ```
 
 ```json
-{"id": "18c3a...", "thread_id": "18c3a...", "sent": true}
+{"draft_id": "r123...", "message_id": "18c3a...", "thread_id": "18c3a...", "saved": true}
 ```
 
 #### thread

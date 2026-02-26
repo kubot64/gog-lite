@@ -112,7 +112,7 @@ type GmailSendCmd struct {
 }
 
 func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
-	if err := enforceActionPolicy(c.Account, "gmail.send"); err != nil {
+	if err := enforceActionPolicy(c.Account, "gmail.draft"); err != nil {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
@@ -181,12 +181,14 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	raw := base64.RawURLEncoding.EncodeToString([]byte(headers.String()))
 
-	msg, err := svc.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do()
+	draft, err := svc.Users.Drafts.Create("me", &gmail.Draft{
+		Message: &gmail.Message{Raw: raw},
+	}).Do()
 	if err != nil {
-		return writeGoogleAPIError("send_error", err)
+		return writeGoogleAPIError("draft_error", err)
 	}
 	if err := appendAuditLog(root.AuditLog, auditEntry{
-		Action:  "gmail.send",
+		Action:  "gmail.draft",
 		Account: normalizeEmail(c.Account),
 		Target:  c.To,
 		DryRun:  false,
@@ -195,9 +197,10 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
-		"id":        msg.Id,
-		"thread_id": msg.ThreadId,
-		"sent":      true,
+		"draft_id":   draft.Id,
+		"message_id": draft.Message.Id,
+		"thread_id":  draft.Message.ThreadId,
+		"saved":      true,
 	})
 }
 

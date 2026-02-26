@@ -86,7 +86,7 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs \
 ```bash
 gog-lite auth list                        # 認証済みアカウント一覧
 gog-lite auth remove --account EMAIL      # アカウントのトークンを削除
-gog-lite auth preflight --account EMAIL --require-actions gmail.send,calendar.create
+gog-lite auth preflight --account EMAIL --require-actions gmail.draft,calendar.create
 gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
 gog-lite auth emergency-revoke --account EMAIL
 ```
@@ -100,7 +100,7 @@ gog-lite gmail search --account you@gmail.com --query "is:unread" --max 10
 # メール本文を取得
 gog-lite gmail get --account you@gmail.com --message-id MESSAGE_ID
 
-# メールを送信
+# メールを下書きとして保存（送信はしない）
 gog-lite gmail send --account you@gmail.com \
   --to boss@example.com --subject "週次レポート" --body "本文です"
 
@@ -217,10 +217,31 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 
 | サービス | 有効化が必要なAPI | スコープ |
 |---------|-----------------|---------|
-| `gmail` | Gmail API | `gmail.readonly`, `gmail.send`（操作に応じて最小権限） |
+| `gmail` | Gmail API | `gmail.readonly`, `gmail.compose`（操作に応じて最小権限） |
 | `calendar` | Google Calendar API | `calendar.readonly` / `calendar`（操作に応じて最小権限） |
 | `docs` | Docs API + Drive API | `documents.readonly` / `documents` / `drive.readonly`（操作に応じて最小権限） |
 | `drive` | Google Drive API | `drive.readonly` |
+
+## Breaking Changes
+
+### gmail send — 送信から下書き保存へ（次期リリース）
+
+`gmail send` コマンドの動作が変わります。
+
+| 項目 | 変更前 | 変更後 |
+|---|---|---|
+| 動作 | メールを即時送信 | Gmail 下書きとして保存 |
+| OAuth スコープ | `gmail.send` | `gmail.compose` |
+| ポリシーアクション | `gmail.send` | `gmail.draft` |
+| 成功時 JSON | `{"id":"...","thread_id":"...","sent":true}` | `{"draft_id":"...","message_id":"...","thread_id":"...","saved":true}` |
+| エラーコード | `send_error` | `draft_error` |
+
+**移行手順:**
+
+1. `--require-actions gmail.send` を使用している箇所を `gmail.draft` に変更する
+2. 認証を再実行して `gmail.compose` スコープを付与する（`gog-lite auth login --account EMAIL --force-consent`）
+3. 成功レスポンスの `sent` / `id` フィールド参照を `saved` / `draft_id` / `message_id` に更新する
+4. エラーハンドリングの `send_error` を `draft_error` に更新する
 
 ## ドキュメント
 
