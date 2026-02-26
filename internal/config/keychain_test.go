@@ -16,9 +16,9 @@ func TestReadCredentials_KeychainFallbackOnDarwin(t *testing.T) {
 	currentGOOS = "darwin"
 	lookupKeychainItem = func(service string) (string, error) {
 		switch service {
-		case keychainClientID:
+		case clientIDEnvVar:
 			return "keychain-id", nil
-		case keychainClientSecret:
+		case clientSecretEnvVar:
 			return "keychain-secret", nil
 		default:
 			return "", errors.New("unexpected service")
@@ -64,7 +64,7 @@ func TestReadCredentials_KeychainFailureFallsBackToFile(t *testing.T) {
 	origLookup := lookupKeychainItem
 	currentGOOS = "darwin"
 	lookupKeychainItem = func(service string) (string, error) {
-		if service == keychainClientSecret {
+		if service == clientSecretEnvVar {
 			return "", errors.New("not found")
 		}
 		return "keychain-id", nil

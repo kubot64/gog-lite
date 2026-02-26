@@ -11,11 +11,9 @@ import (
 )
 
 const (
-	AppName              = "gog-lite"
-	clientIDEnvVar       = "GOG_LITE_CLIENT_ID"     //nolint:gosec
-	clientSecretEnvVar   = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
-	keychainClientID     = "GOG_LITE_CLIENT_ID"     //nolint:gosec
-	keychainClientSecret = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
+	AppName            = "gog-lite"
+	clientIDEnvVar     = "GOG_LITE_CLIENT_ID"     //nolint:gosec
+	clientSecretEnvVar = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
 )
 
 var (
@@ -191,11 +189,11 @@ func readCredentialsFromKeychain() (ClientCredentials, bool) {
 		return ClientCredentials{}, false
 	}
 
-	clientID, err := lookupKeychainItem(keychainClientID)
+	clientID, err := lookupKeychainItem(clientIDEnvVar)
 	if err != nil {
 		return ClientCredentials{}, false
 	}
-	clientSecret, err := lookupKeychainItem(keychainClientSecret)
+	clientSecret, err := lookupKeychainItem(clientSecretEnvVar)
 	if err != nil {
 		return ClientCredentials{}, false
 	}
@@ -212,6 +210,7 @@ func readCredentialsFromKeychain() (ClientCredentials, bool) {
 func defaultLookupKeychainItem(service string) (string, error) {
 	user := strings.TrimSpace(os.Getenv("USER"))
 	if user == "" {
+		// Keep this as a soft failure so caller can continue fallback resolution.
 		return "", fmt.Errorf("USER environment variable is empty")
 	}
 
