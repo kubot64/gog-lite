@@ -98,7 +98,7 @@ gog-lite auth list
 gog-lite auth login  --account EMAIL [--services gmail,calendar,docs] [--auth-url URL] [--force-consent]
 gog-lite auth list
 gog-lite auth remove --account EMAIL
-gog-lite auth preflight --account EMAIL [--require-actions gmail.send,calendar.create]
+gog-lite auth preflight --account EMAIL [--require-actions gmail.draft,calendar.create]
 gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
 gog-lite auth emergency-revoke --account EMAIL
 ```
