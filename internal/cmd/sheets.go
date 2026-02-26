@@ -47,8 +47,9 @@ func (c *SheetsInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
 
 	sheetInfos := make([]sheetInfo, 0, len(sp.Sheets))
 	for _, s := range sp.Sheets {
-		info := sheetInfo{Title: s.Properties.Title}
+		var info sheetInfo
 		if s.Properties != nil {
+			info.Title = s.Properties.Title
 			info.SheetID = s.Properties.SheetId
 			if s.Properties.GridProperties != nil {
 				info.RowCount = s.Properties.GridProperties.RowCount
@@ -58,9 +59,14 @@ func (c *SheetsInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
 		sheetInfos = append(sheetInfos, info)
 	}
 
+	title := ""
+	if sp.Properties != nil {
+		title = sp.Properties.Title
+	}
+
 	return output.WriteJSON(os.Stdout, map[string]any{
 		"spreadsheet_id": sp.SpreadsheetId,
-		"title":          sp.Properties.Title,
+		"title":          title,
 		"url":            fmt.Sprintf("https://docs.google.com/spreadsheets/d/%s/edit", sp.SpreadsheetId),
 		"sheets":         sheetInfos,
 	})

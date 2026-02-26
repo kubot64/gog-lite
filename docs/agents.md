@@ -446,7 +446,7 @@ page-id 指定時の出力：
 
 ```bash
 gog-lite slides write --account EMAIL --presentation-id PRESENTATION_ID \
-  --find "{{NAME}}" --replace "Alice"
+  --find "{{NAME}}" --replace "Alice" --confirm-write [--approval-token TOKEN]
 
 # dry-run で確認
 gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_ID \

@@ -136,11 +136,30 @@ type SlidesWriteCmd struct {
 	Find           string `name:"find" required:"" help:"Text to find."`
 	Replace        string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase      bool   `name:"match-case" help:"Case-sensitive matching (default: false)."`
+	ConfirmWrite   bool   `name:"confirm-write" help:"Required confirmation flag for write operations."`
+	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions."`
 }
 
 func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	if err := enforceActionPolicy(c.Account, "slides.write"); err != nil {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
+	if !root.DryRun && !c.ConfirmWrite {
+		return output.WriteError(output.ExitCodeError, "write_requires_confirmation",
+			"slides write requires --confirm-write")
+	}
+
+	if !root.DryRun {
+		required, err := actionRequiresApproval("slides.write")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			if err := consumeApprovalToken(c.Account, "slides.write", c.ApprovalToken); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
 	}
 
 	if root.DryRun {

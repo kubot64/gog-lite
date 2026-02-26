@@ -214,7 +214,7 @@ gog-lite --dry-run slides write --account you@gmail.com --presentation-id PRESEN
   --find "{{NAME}}" --replace "Alice"
 
 gog-lite slides write --account you@gmail.com --presentation-id PRESENTATION_ID \
-  --find "{{NAME}}" --replace "Alice"
+  --find "{{NAME}}" --replace "Alice" --confirm-write
 ```
 
 ## 出力例
