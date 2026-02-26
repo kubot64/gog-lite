@@ -11,6 +11,7 @@ var defaultApprovalActions = []string{
 	"calendar.delete",
 	"docs.write.replace",
 	"docs.find_replace",
+	"slides.write",
 }
 
 func enforceActionPolicy(account, action string) error {

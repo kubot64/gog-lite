@@ -16,6 +16,10 @@ func TestParseService_Valid(t *testing.T) {
 		{"  calendar  ", googleauth.ServiceCalendar},
 		{"docs", googleauth.ServiceDocs},
 		{"drive", googleauth.ServiceDrive},
+		{"sheets", googleauth.ServiceSheets},
+		{"SHEETS", googleauth.ServiceSheets},
+		{"slides", googleauth.ServiceSlides},
+		{"SLIDES", googleauth.ServiceSlides},
 	}
 	for _, tt := range tests {
 		got, err := googleauth.ParseService(tt.input)
@@ -30,7 +34,7 @@ func TestParseService_Valid(t *testing.T) {
 }
 
 func TestParseService_Invalid(t *testing.T) {
-	for _, s := range []string{"sheets", "forms", "", "gma il"} {
+	for _, s := range []string{"forms", "", "gma il", "unknown"} {
 		if _, err := googleauth.ParseService(s); err == nil {
 			t.Errorf("ParseService(%q): expected error, got nil", s)
 		}
@@ -92,7 +96,7 @@ func TestScopesForServices_Sorted(t *testing.T) {
 }
 
 func TestScopesForServices_UnknownService(t *testing.T) {
-	_, err := googleauth.ScopesForServices([]googleauth.Service{"sheets"})
+	_, err := googleauth.ScopesForServices([]googleauth.Service{"unknown"})
 	if err == nil {
 		t.Error("expected error for unknown service, got nil")
 	}

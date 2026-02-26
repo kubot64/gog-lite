@@ -174,6 +174,49 @@ gog-lite docs export --account you@gmail.com --doc-id DOC_ID --format pdf --outp
 gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token TOKEN
 ```
 
+### Google Sheets
+
+```bash
+# スプレッドシート情報を取得
+gog-lite sheets info --account you@gmail.com --spreadsheet-id SPREADSHEET_ID
+
+# セル範囲の値を取得
+gog-lite sheets get --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!A1:C5"
+
+# セル値を更新（--dry-run で確認してから）
+gog-lite --dry-run sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+
+gog-lite sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+
+# 行を末尾に追加（stdin から）
+echo '[["Bob",25]]' | gog-lite sheets append --account you@gmail.com \
+  --spreadsheet-id SPREADSHEET_ID --range Sheet1 --values-stdin
+```
+
+### Google Slides
+
+```bash
+# プレゼンテーション情報を取得
+gog-lite slides info --account you@gmail.com --presentation-id PRESENTATION_ID
+
+# 全スライドのテキストを取得
+gog-lite slides get --account you@gmail.com --presentation-id PRESENTATION_ID
+
+# 特定スライドのテキストを取得
+gog-lite slides get --account you@gmail.com --presentation-id PRESENTATION_ID \
+  --page-id SLIDE_OBJECT_ID
+
+# テキスト置換（--dry-run で確認してから）
+gog-lite --dry-run slides write --account you@gmail.com --presentation-id PRESENTATION_ID \
+  --find "{{NAME}}" --replace "Alice"
+
+gog-lite slides write --account you@gmail.com --presentation-id PRESENTATION_ID \
+  --find "{{NAME}}" --replace "Alice" --confirm-write
+```
+
 ## 出力例
 
 ```bash
@@ -239,6 +282,8 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 | `calendar` | Google Calendar API | `calendar.readonly` / `calendar`（操作に応じて最小権限） |
 | `docs` | Docs API + Drive API | `documents.readonly` / `documents` / `drive.readonly`（操作に応じて最小権限） |
 | `drive` | Google Drive API | `drive.readonly` |
+| `sheets` | Google Sheets API | `spreadsheets.readonly` / `spreadsheets`（操作に応じて最小権限） |
+| `slides` | Google Slides API | `presentations.readonly` / `presentations`（操作に応じて最小権限） |
 
 ## Breaking Changes
 

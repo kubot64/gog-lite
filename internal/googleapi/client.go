@@ -8,6 +8,8 @@ import (
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/sheets/v4"
+	"google.golang.org/api/slides/v1"
 
 	"github.com/kubot64/gog-lite/internal/googleauth"
 )
@@ -20,6 +22,10 @@ const (
 	scopeDocsReadonly     = "https://www.googleapis.com/auth/documents.readonly"
 	scopeDocsWrite        = "https://www.googleapis.com/auth/documents"
 	scopeDriveReadonly    = "https://www.googleapis.com/auth/drive.readonly"
+	scopeSheetsReadonly   = "https://www.googleapis.com/auth/spreadsheets.readonly"
+	scopeSheetsWrite      = "https://www.googleapis.com/auth/spreadsheets"
+	scopeSlidesReadonly   = "https://www.googleapis.com/auth/presentations.readonly"
+	scopeSlidesWrite      = "https://www.googleapis.com/auth/presentations"
 )
 
 // Legacy constructors — delegate to read-only variants for least privilege.
@@ -90,4 +96,36 @@ func NewDriveReadOnly(ctx context.Context, email string) (*drive.Service, error)
 		return nil, fmt.Errorf("drive options: %w", err)
 	}
 	return drive.NewService(ctx, opts...)
+}
+
+func NewSheetsReadOnly(ctx context.Context, email string) (*sheets.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceSheets), email, []string{scopeSheetsReadonly})
+	if err != nil {
+		return nil, fmt.Errorf("sheets options: %w", err)
+	}
+	return sheets.NewService(ctx, opts...)
+}
+
+func NewSheetsWrite(ctx context.Context, email string) (*sheets.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceSheets), email, []string{scopeSheetsWrite})
+	if err != nil {
+		return nil, fmt.Errorf("sheets options: %w", err)
+	}
+	return sheets.NewService(ctx, opts...)
+}
+
+func NewSlidesReadOnly(ctx context.Context, email string) (*slides.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceSlides), email, []string{scopeSlidesReadonly})
+	if err != nil {
+		return nil, fmt.Errorf("slides options: %w", err)
+	}
+	return slides.NewService(ctx, opts...)
+}
+
+func NewSlidesWrite(ctx context.Context, email string) (*slides.Service, error) {
+	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceSlides), email, []string{scopeSlidesWrite})
+	if err != nil {
+		return nil, fmt.Errorf("slides options: %w", err)
+	}
+	return slides.NewService(ctx, opts...)
 }
