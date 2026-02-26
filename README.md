@@ -35,8 +35,9 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~
 
 ## バージョン運用
 
+- CalVer `vYYYY.MM.PATCH`（例: `v2026.02.1`）を採用。
 - `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
-- リリース時は Git タグ（例: `v0.2.0`）を作成し、タグ値を version に使う。
+- リリース時は Git タグを作成し、タグ値を version に使う。
 - 例:
 
 ```bash
