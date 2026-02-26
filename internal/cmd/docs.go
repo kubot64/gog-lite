@@ -32,6 +32,10 @@ type DocsInfoCmd struct {
 }
 
 func (c *DocsInfoCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "docs.info"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	svc, err := googleapi.NewDocsReadOnly(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
@@ -58,6 +62,10 @@ type DocsCatCmd struct {
 }
 
 func (c *DocsCatCmd) Run(ctx context.Context, _ *RootFlags) error {
+	if err := enforceActionPolicy(c.Account, "docs.cat"); err != nil {
+		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
 	if err := enforceRateLimit("docs.cat", 120, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
@@ -608,22 +616,72 @@ func ensureWithinAllowedOutputDir(outputPath, allowedDir string) error {
 		return nil
 	}
 
-	outAbs, err := filepath.Abs(outputPath)
+	outResolved, err := resolvePathForContainment(outputPath)
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}
-	allowedAbs, err := filepath.Abs(allowedDir)
+	allowedResolved, err := resolvePathForContainment(allowedDir)
 	if err != nil {
 		return fmt.Errorf("resolve allowed output dir: %w", err)
 	}
-	if outAbs == allowedAbs {
+	if outResolved == allowedResolved {
 		return nil
 	}
-	if !strings.HasPrefix(outAbs, allowedAbs+string(os.PathSeparator)) {
-		return fmt.Errorf("output path must be under %s", allowedAbs)
+
+	prefix := allowedResolved + string(os.PathSeparator)
+	if allowedResolved == string(os.PathSeparator) {
+		prefix = allowedResolved
+	}
+
+	if !strings.HasPrefix(outResolved, prefix) {
+		return fmt.Errorf("output path must be under %s", allowedResolved)
 	}
 
 	return nil
+}
+
+func resolvePathForContainment(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := os.Lstat(absPath); err == nil {
+		resolved, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			return "", err
+		}
+
+		return filepath.Clean(resolved), nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	current := absPath
+	missing := make([]string, 0, 4)
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return "", err
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+
+			return filepath.Clean(resolved), nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return filepath.Clean(absPath), nil
+		}
+
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
 }
 
 func docsAuthError(err error) error {

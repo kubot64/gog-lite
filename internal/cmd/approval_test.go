@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -79,5 +80,31 @@ func TestApprovalToken_ActionMismatch(t *testing.T) {
 	}
 	if err := consumeApprovalToken("a@example.com", "docs.write.replace", token); err == nil {
 		t.Fatal("expected action mismatch to be rejected")
+	}
+}
+
+func TestApprovalTokenPath_RejectsTraversal(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	for _, token := range []string{"../evil", "/tmp/evil", "a/b", "bad token"} {
+		if _, err := approvalTokenPath(token); err == nil {
+			t.Fatalf("expected %q to be rejected", token)
+		}
+	}
+}
+
+func TestConsumeApprovalToken_RejectsTraversal(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	err := consumeApprovalToken("a@example.com", "calendar.delete", "../evil")
+	if err == nil {
+		t.Fatal("expected traversal token to be rejected")
+	}
+	if !strings.Contains(err.Error(), "invalid format") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

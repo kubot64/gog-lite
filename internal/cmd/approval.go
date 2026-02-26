@@ -49,16 +49,15 @@ func issueApprovalToken(account, action string, ttl time.Duration) (string, stri
 	if err != nil {
 		return "", "", err
 	}
+	if err := rejectApprovalTokenSymlink(path); err != nil {
+		return "", "", err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", "", fmt.Errorf("ensure approvals dir: %w", err)
 	}
 
-	b, err := json.Marshal(st)
-	if err != nil {
-		return "", "", fmt.Errorf("encode approval token: %w", err)
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
+	if err := writeApprovalTokenState(path, st); err != nil {
 		return "", "", fmt.Errorf("write approval token: %w", err)
 	}
 
@@ -75,6 +74,9 @@ func consumeApprovalToken(account, action, token string) error {
 
 	path, err := approvalTokenPath(token)
 	if err != nil {
+		return err
+	}
+	if err := rejectApprovalTokenSymlink(path); err != nil {
 		return err
 	}
 
@@ -109,7 +111,7 @@ func consumeApprovalToken(account, action, token string) error {
 	if err != nil {
 		return fmt.Errorf("encode approval token: %w", err)
 	}
-	if err := os.WriteFile(path, out, 0o600); err != nil {
+	if err := writeApprovalTokenBytes(path, out); err != nil {
 		return fmt.Errorf("mark approval token used: %w", err)
 	}
 
@@ -117,12 +119,34 @@ func consumeApprovalToken(account, action, token string) error {
 }
 
 func approvalTokenPath(token string) (string, error) {
+	token = strings.TrimSpace(token)
+	if err := validateApprovalToken(token); err != nil {
+		return "", err
+	}
+
 	dir, err := config.EnsureDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve config dir: %w", err)
 	}
 
-	return filepath.Join(dir, "approvals", token+".json"), nil
+	approvalsDir := filepath.Join(dir, "approvals")
+	baseAbs, err := filepath.Abs(approvalsDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve approvals dir: %w", err)
+	}
+
+	candidate := filepath.Join(baseAbs, token+".json")
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve approval token path: %w", err)
+	}
+
+	prefix := baseAbs + string(os.PathSeparator)
+	if !strings.HasPrefix(candidateAbs, prefix) {
+		return "", fmt.Errorf("invalid approval token path")
+	}
+
+	return candidateAbs, nil
 }
 
 func randomToken() (string, error) {
@@ -132,4 +156,82 @@ func randomToken() (string, error) {
 	}
 
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func validateApprovalToken(token string) error {
+	if token == "" {
+		return fmt.Errorf("approval token is required")
+	}
+
+	for _, r := range token {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_':
+		default:
+			return fmt.Errorf("approval token has invalid format")
+		}
+	}
+
+	return nil
+}
+
+func rejectApprovalTokenSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+
+		return fmt.Errorf("stat approval token: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("approval token file must not be a symlink")
+	}
+
+	return nil
+}
+
+func writeApprovalTokenState(path string, st approvalTokenState) error {
+	out, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode approval token: %w", err)
+	}
+
+	return writeApprovalTokenBytes(path, out)
+}
+
+func writeApprovalTokenBytes(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".approval-token-*")
+	if err != nil {
+		return fmt.Errorf("create temp approval token: %w", err)
+	}
+
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("write temp approval token: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("chmod temp approval token: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp approval token: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("commit approval token: %w", err)
+	}
+
+	cleanup = false
+
+	return nil
 }
