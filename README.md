@@ -24,6 +24,13 @@ brew tap kubot64/gog-lite https://github.com/kubot64/gog-lite
 brew install gog-lite
 ```
 
+アップグレード:
+
+```bash
+brew update
+brew upgrade gog-lite
+```
+
 ### ソースからビルド
 
 ```bash
