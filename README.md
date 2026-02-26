@@ -37,13 +37,18 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~
 ## バージョン運用
 
 - CalVer `vYYYY.MM.PATCH`（例: `v2026.02.1`）を採用。
-- `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
-- リリース時は Git タグを作成し、タグ値を version に使う。
-- 例:
+- PATCH は GitHub Actions の Release ワークフローが自動採番する。
+- リリースは GitHub UI または CLI からワークフローを実行するだけ:
 
 ```bash
-VERSION=$(git describe --tags --always --dirty)
-go build -ldflags "-X main.version=$VERSION" -o ~/bin/gog-lite ./cmd/gog-lite/
+gh workflow run release.yml
+```
+
+- `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
+- ローカルビルドでは `dev` がデフォルト:
+
+```bash
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~/bin/gog-lite ./cmd/gog-lite/
 gog-lite --version
 ```
 
