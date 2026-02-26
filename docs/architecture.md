@@ -64,7 +64,7 @@ flowchart TD
 
 ### 1. ポリシー制御（`internal/cmd/policy.go`）
 
-`~/.config/gog-lite/policy.json` でアクションとアカウントを制限します。
+`os.UserConfigDir()/gog-lite/policy.json` でアクションとアカウントを制限します。
 
 ```json
 {
@@ -183,10 +183,11 @@ stderr  → エラー（常に {"error": "...", "code": "..."} 形式の JSON）
 
 ## 設定ファイルの配置
 
-すべての実行時データは XDG に従い `~/.config/gog-lite/` 以下に置きます。
+すべての実行時データは `os.UserConfigDir()/gog-lite/` 以下に置きます
+（macOS では `~/Library/Application Support/gog-lite/`、Linux では `~/.config/gog-lite/`）。
 
 ```
-~/.config/gog-lite/
+$USER_CONFIG_DIR/gog-lite/
 ├── credentials.json     # OAuth クライアント ID/シークレット
 ├── policy.json          # アクション制限・アカウントブロック
 ├── audit.log            # 書き込み操作の監査ログ（JSONL）
