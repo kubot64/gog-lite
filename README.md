@@ -20,7 +20,8 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 ### Homebrew（macOS / Linux）
 
 ```bash
-brew install kubot64/tap/gog-lite
+brew tap kubot64/gog-lite https://github.com/kubot64/gog-lite
+brew install gog-lite
 ```
 
 ### ソースからビルド
