@@ -27,14 +27,16 @@ Google Cloud Console で「デスクトップアプリ」タイプの OAuth2 ク
 ダウンロードした JSON を以下に配置する（または `client_id`/`client_secret` を直接記述）：
 
 ```
-# macOS:
+# macOS (ファイル方式):
 $HOME/Library/Application Support/gog-lite/credentials.json
 
-# Linux:
+# Linux (ファイル方式):
 ~/.config/gog-lite/credentials.json
 ```
 
 External のテスト中アプリでは、OAuth 同意画面の Test users に利用アカウント追加が必要。
+macOS では `GOG_LITE_CLIENT_ID` / `GOG_LITE_CLIENT_SECRET` を Keychain に保存して
+`credentials.json` を削除する運用も可能。
 
 ### 2. アカウント認証（2ステップ）
 
@@ -398,8 +400,12 @@ export GOG_LITE_KEYRING_BACKEND=file
 export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 ```
 
-`GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の**両方**が設定されている場合、credentials.json は参照されない。
-片方のみの場合はファイルにフォールバックする。
+参照優先順位は次の通り：
+1. `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET`（両方）
+2. macOS の場合は Keychain（`GOG_LITE_CLIENT_ID` / `GOG_LITE_CLIENT_SECRET`）
+3. `credentials.json`
+
+片方のみ設定されている場合は次の経路へフォールバックする。
 `GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
 
 ---
