@@ -44,13 +44,14 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~
 ## バージョン運用
 
 - CalVer `vYYYY.MMDD.HHmm`（例: `v2026.0226.1430`）を採用。
-- タグは GitHub Actions の Release ワークフローが実行時刻から自動生成する。
-- リリースは GitHub UI または CLI からワークフローを実行するだけ:
+- タグ生成とリリースを分離（Tag Release → Release）。
+- まずタグ生成ワークフローを実行:
 
 ```bash
-gh workflow run release.yml
+gh workflow run tag.yml --ref main
 ```
 
+- タグ push をトリガーに Release ワークフローが自動実行される。
 - `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
 - ローカルビルドでは `dev` がデフォルト:
 
