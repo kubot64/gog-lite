@@ -60,6 +60,20 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~
 gog-lite --version
 ```
 
+## 開発時のワークフロー検証
+
+GitHub Actions の YAML 構文と workflow 設定を事前に確認できます。
+
+```bash
+./scripts/check-workflows.sh
+```
+
+`actionlint` をインストール済みの場合は、構文チェックに加えて workflow lint も実行します。
+
+```bash
+brew install actionlint
+```
+
 ## セットアップ
 
 ### 1. OAuth クライアント認証情報
