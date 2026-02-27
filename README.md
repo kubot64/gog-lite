@@ -6,10 +6,10 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 
 ## 特徴
 
-- **JSON専用出力** — stdout は常にJSON。色・表・TSVなし
+- **JSON専用出力** — stdout は常にJSON（`--help` / `--version` を含む）。色・表・TSVなし
 - **ヘッドレス認証** — ブラウザ自動起動なし。URLを出力して2ステップで認証完了
 - **予測可能な終了コード** — `0`=成功 / `1`=エラー / `2`=認証エラー / `3`=未発見 / `4`=権限なし
-- **エラーはstderrにJSON** — `{"error": "...", "code": "..."}` 形式。stdoutと混在しない
+- **エラーはstderrにJSON** — `{"error": "...", "code": "..."}` 形式（引数エラーを含む）。stdoutと混在しない
 - **stdin対応** — `--body-stdin` / `--content-stdin` でパイプ渡し可能
 - **dry-run** — 書き込み系コマンドを `--dry-run`（`-n`）で確認できる
 - **監査ログ** — `--audit-log` で書き込み操作をJSONL記録
@@ -58,6 +58,7 @@ gh workflow run tag.yml --ref main
 ```bash
 go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~/bin/gog-lite ./cmd/gog-lite/
 gog-lite --version
+# -> {"version":"v2026.0227.0349"} などのJSON
 ```
 
 ## 開発時のワークフロー検証

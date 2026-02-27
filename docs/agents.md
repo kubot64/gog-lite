@@ -8,11 +8,11 @@ AIエージェントが gog-lite を使う際に必要な情報をまとめた�
 
 | 原則 | 内容 |
 |------|------|
-| stdout | 常に JSON（色・表・TSVなし） |
-| stderr | エラーのみ `{"error": "...", "code": "..."}` |
+| stdout | 常に JSON（色・表・TSVなし）。`--help` / `--version` も JSON |
+| stderr | エラーのみ `{"error": "...", "code": "..."}`（引数エラーを含む） |
 | 終了コード | 0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし |
 | 認証 | ブラウザ不要。2ステップで URL → コード交換 |
-| `--account` | 各コマンドの必須フラグ（グローバルではない） |
+| `--account` | アカウント対象コマンドで必須（`auth list` は不要） |
 | `--dry-run` | グローバルフラグ。API呼び出しなしで実行内容を確認 |
 | `--audit-log` | グローバルフラグ。書き込み系操作の監査ログ(JSONL) |
 | `--allowed-output-dir` | グローバルフラグ。ファイル出力先ディレクトリ制限 |
@@ -103,6 +103,8 @@ gog-lite auth remove --account EMAIL
 gog-lite auth preflight --account EMAIL [--require-actions gmail.draft,calendar.create]
 gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
 gog-lite auth emergency-revoke --account EMAIL
+gog-lite --version
+gog-lite --help
 ```
 
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須アクション（`require_approval_actions` またはデフォルト）である場合のみ発行される。
