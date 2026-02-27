@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/api/calendar/v3"
 
@@ -128,5 +129,47 @@ func TestCalendarDeleteRequiresConfirmation(t *testing.T) {
 	}
 	if payload.Code != "delete_requires_confirmation" {
 		t.Errorf("code = %q, want %q", payload.Code, "delete_requires_confirmation")
+	}
+}
+
+func TestCalendarDeleteRejectsReusedApprovalToken(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	token, _, err := issueApprovalToken("a@example.com", "calendar.delete", time.Minute)
+	if err != nil {
+		t.Fatalf("issueApprovalToken: %v", err)
+	}
+	if err := consumeApprovalToken("a@example.com", "calendar.delete", token); err != nil {
+		t.Fatalf("consumeApprovalToken first use: %v", err)
+	}
+
+	cmd := &CalendarDeleteCmd{
+		Account:       "a@example.com",
+		EventID:       "event-123",
+		ConfirmDelete: true,
+		ApprovalToken: token,
+	}
+
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{DryRun: false})
+	})
+	if runErr == nil {
+		t.Fatal("expected error for reused approval token")
+	}
+	if output.ExitCode(runErr) != output.ExitCodePermission {
+		t.Fatalf("expected ExitCodePermission, got %d", output.ExitCode(runErr))
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "approval_required" {
+		t.Errorf("code = %q, want %q", payload.Code, "approval_required")
 	}
 }

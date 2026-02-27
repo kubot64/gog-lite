@@ -12,6 +12,7 @@ on:
 jobs:
   workflow-lint:
     name: Workflow Lint
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -22,6 +23,7 @@ jobs:
 
   action-refs:
     name: Action Ref Check
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -32,6 +34,7 @@ jobs:
 
   unit-fast:
     name: Unit Tests
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -54,6 +57,7 @@ jobs:
 
   integration-cli:
     name: CLI Integration Tests
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
