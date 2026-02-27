@@ -19,7 +19,7 @@ jobs:
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: main
@@ -44,7 +44,7 @@ jobs:
     needs: resolve_tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ needs.resolve_tag.outputs.tag }}
@@ -67,7 +67,7 @@ jobs:
     env:
       TAG: ${{ needs.resolve_tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
       - name: Generate Formula
