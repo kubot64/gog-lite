@@ -46,7 +46,7 @@ jobs:
           GOG_LITE_KEYRING_PASSWORD: ci-test-password
       - name: Upload test failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-failures
           path: /tmp/gog-lite-test-*.log
@@ -284,7 +284,7 @@ jobs:
           "
       - name: Upload security test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-test-results
           path: /tmp/gog-lite-security-*.log
