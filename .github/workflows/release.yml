@@ -12,7 +12,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  resolve-tag:
+  resolve_tag:
     name: Resolve Tag
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
@@ -41,13 +41,13 @@ jobs:
 
   goreleaser:
     name: GoReleaser
-    needs: resolve-tag
+    needs: resolve_tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.resolve-tag.outputs.tag }}
+          ref: ${{ needs.resolve_tag.outputs.tag }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -62,10 +62,10 @@ jobs:
     name: Update Homebrew Formula
     needs:
       - goreleaser
-      - resolve-tag
+      - resolve_tag
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ needs.resolve-tag.outputs.tag }}
+      TAG: ${{ needs.resolve_tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
