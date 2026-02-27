@@ -89,42 +89,42 @@ jobs:
           SHA_LINUX_AMD64=$(get_sha256 "gog-lite_${VERSION}_linux_amd64.tar.gz")
 
           mkdir -p Formula
-          cat > Formula/gog-lite.rb <<RUBY
-class GogLite < Formula
-  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs"
-  homepage "https://github.com/${REPO}"
-  version "${VERSION}"
-  license "MIT"
-
-  on_macos do
-    if Hardware::CPU.arm?
-      url "${BASE_URL}/gog-lite_${VERSION}_darwin_arm64.tar.gz"
-      sha256 "${SHA_DARWIN_ARM64}"
-    else
-      url "${BASE_URL}/gog-lite_${VERSION}_darwin_amd64.tar.gz"
-      sha256 "${SHA_DARWIN_AMD64}"
-    end
-  end
-
-  on_linux do
-    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "${BASE_URL}/gog-lite_${VERSION}_linux_arm64.tar.gz"
-      sha256 "${SHA_LINUX_ARM64}"
-    else
-      url "${BASE_URL}/gog-lite_${VERSION}_linux_amd64.tar.gz"
-      sha256 "${SHA_LINUX_AMD64}"
-    end
-  end
-
-  def install
-    bin.install "gog-lite"
-  end
-
-  test do
-    system "#{bin}/gog-lite", "--version"
-  end
-end
-RUBY
+          {
+            printf 'class GogLite < Formula\n'
+            printf '  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs"\n'
+            printf '  homepage "https://github.com/%s"\n' "$REPO"
+            printf '  version "%s"\n' "$VERSION"
+            printf '  license "MIT"\n'
+            printf '\n'
+            printf '  on_macos do\n'
+            printf '    if Hardware::CPU.arm?\n'
+            printf '      url "%s/gog-lite_%s_darwin_arm64.tar.gz"\n' "$BASE_URL" "$VERSION"
+            printf '      sha256 "%s"\n' "$SHA_DARWIN_ARM64"
+            printf '    else\n'
+            printf '      url "%s/gog-lite_%s_darwin_amd64.tar.gz"\n' "$BASE_URL" "$VERSION"
+            printf '      sha256 "%s"\n' "$SHA_DARWIN_AMD64"
+            printf '    end\n'
+            printf '  end\n'
+            printf '\n'
+            printf '  on_linux do\n'
+            printf '    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?\n'
+            printf '      url "%s/gog-lite_%s_linux_arm64.tar.gz"\n' "$BASE_URL" "$VERSION"
+            printf '      sha256 "%s"\n' "$SHA_LINUX_ARM64"
+            printf '    else\n'
+            printf '      url "%s/gog-lite_%s_linux_amd64.tar.gz"\n' "$BASE_URL" "$VERSION"
+            printf '      sha256 "%s"\n' "$SHA_LINUX_AMD64"
+            printf '    end\n'
+            printf '  end\n'
+            printf '\n'
+            printf '  def install\n'
+            printf '    bin.install "gog-lite"\n'
+            printf '  end\n'
+            printf '\n'
+            printf '  test do\n'
+            printf '    system "#{bin}/gog-lite", "--version"\n'
+            printf '  end\n'
+            printf 'end\n'
+          } > Formula/gog-lite.rb
       - name: Create PR for Formula update
         uses: peter-evans/create-pull-request@67df67d0e8e05e405e4c941fe2de7e4e9f6a0b2e # v7.0.7
         with:
