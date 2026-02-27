@@ -20,6 +20,16 @@ jobs:
       - name: Lint workflows with actionlint
         uses: rhysd/actionlint@393031adb9afb225ee52ae2ccd7a5af5525e03e8 # v1.7.11
 
+  action-refs:
+    name: Action Ref Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate action refs are resolvable
+        run: ./scripts/check-action-refs.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   unit-fast:
     name: Unit Tests
     runs-on: ubuntu-latest

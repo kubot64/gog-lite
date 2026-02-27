@@ -66,6 +66,7 @@ GitHub Actions の YAML 構文と workflow 設定を事前に確認できます�
 
 ```bash
 ./scripts/check-workflows.sh
+./scripts/check-action-refs.sh
 ```
 
 `actionlint` をインストール済みの場合は、構文チェックに加えて workflow lint も実行します。
