@@ -39,5 +39,5 @@
 - コーディング規約: [`docs/coding-rules.md`](docs/coding-rules.md)
 - レビュー観点: [`docs/review-checklist.md`](docs/review-checklist.md)
 - CI運用手順: [`docs/ci-playbook.md`](docs/ci-playbook.md)
-- アーキテクチャ: [`docs/architecture.md`](docs/architecture.md)
+- アーキテクチャ判断（ADR）: [`docs/adr/README.md`](docs/adr/README.md)
 - 初期セットアップ: [`docs/getting-started.md`](docs/getting-started.md)
