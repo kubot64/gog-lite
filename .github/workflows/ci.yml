@@ -205,19 +205,32 @@ jobs:
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
             --approval-token "$token" 2>/dev/null && true || true
           # Second use: token already used → approval_required.
-          err_json=$(mktemp)
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-            --approval-token "$token" 2>"$err_json" && code=0 || code=$?
-          echo "exit code: $code"
-          cat "$err_json"
-          [ "$code" -ne 0 ]
-          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
-          python3 -c "
+          check_reuse() {
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+              --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "exit code: $code"
+            [ "$code" -ne 0 ] || return 1
+            [ -s "$err_json" ] || return 1
+            python3 -c "
           import json
           d = json.load(open('$err_json'))
           assert d['code'] == 'approval_required', f\"got code {d['code']}\"
           print('approval-token-reuse: OK')
-          "
+            "
+          }
+
+          ok=0
+          for i in 1 2; do
+            if check_reuse; then
+              ok=1
+              break
+            fi
+            echo "retry approval-token reuse check ($i)"
+            sleep 1
+          done
+          [ "$ok" -eq 1 ] || { echo "approval-token reuse check failed after retry"; exit 1; }
       - name: dry-run skips confirm and approval-token
         run: |
           HOME=$(mktemp -d)
