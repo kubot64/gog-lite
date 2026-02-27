@@ -30,7 +30,7 @@ export PATH="$HOME/bin:$PATH"
 
 ```bash
 gog-lite --version
-# v0.2.0 / dev / <tag>-<sha> など（ビルド時に注入した値）
+# {"version":"v0.2.0"} / {"version":"dev"} / {"version":"<tag>-<sha>"} など（ビルド時に注入した値）
 ```
 
 ---
@@ -242,4 +242,4 @@ export GOG_LITE_KEYRING_PASSWORD=任意のパスワード
 
 - より詳しいコマンド一覧 → [README](../README.md)
 - AI エージェントとして使う → [AGENTS.md](../AGENTS.md)
-- 内部構造を理解する → [docs/architecture.md](architecture.md)
+- 内部構造の設計判断を追う → [docs/adr/README.md](adr/README.md)

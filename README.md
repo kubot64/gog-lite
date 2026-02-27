@@ -355,7 +355,7 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 | [docs/coding-rules.md](docs/coding-rules.md) | コントリビューター | 実装時の規約・出力契約・テストルール |
 | [docs/review-checklist.md](docs/review-checklist.md) | レビュアー | バグ・回帰・セキュリティ観点のレビュー項目 |
 | [docs/ci-playbook.md](docs/ci-playbook.md) | 開発者 | CI失敗時の切り分けとフレーク対処手順 |
-| [docs/architecture.md](docs/architecture.md) | コントリビューター | パッケージ構成・セキュリティレイヤー・データフロー |
+| [docs/adr/README.md](docs/adr/README.md) | コントリビューター | アーキテクチャ判断（ADR） |
 
 ## CI セキュリティテスト方針
 
