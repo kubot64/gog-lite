@@ -28,5 +28,6 @@ jobs:
           echo "Tag: ${TAG}"
       - name: Push tag
         run: |
+          set -euo pipefail
           git tag "${{ steps.calver.outputs.tag }}"
           git push origin "${{ steps.calver.outputs.tag }}"

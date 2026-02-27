@@ -93,7 +93,7 @@ class GogLite < Formula
 end
 RUBY
       - name: Create PR for Formula update
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@67df67d0e8e05e405e4c941fe2de7e4e9f6a0b2e # v7.0.7
         with:
           commit-message: "brew: update formula to ${{ github.ref_name }}"
           title: "brew: update formula to ${{ github.ref_name }}"
