@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Create CalVer Tag
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.calver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate CalVer tag
+        id: calver
+        run: |
+          TAG="v$(date -u +%Y.%m%d.%H%M)"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists. Wait a minute and retry."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Tag: ${TAG}"
+      - name: Push tag
+        run: |
+          git tag "${{ steps.calver.outputs.tag }}"
+          git push origin "${{ steps.calver.outputs.tag }}"
+
+  goreleaser:
+    name: GoReleaser
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.tag.outputs.tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-formula:
+    name: Update Homebrew Formula
+    needs: [tag, goreleaser]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Generate Formula
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          REPO="kubot64/gog-lite"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          curl -fsSL -o checksums.txt "${BASE_URL}/checksums.txt"
+
+          get_sha256() {
+            grep "$1" checksums.txt | awk '{print $1}'
+          }
+
+          SHA_DARWIN_ARM64=$(get_sha256 "gog-lite_${VERSION}_darwin_arm64.tar.gz")
+          SHA_DARWIN_AMD64=$(get_sha256 "gog-lite_${VERSION}_darwin_amd64.tar.gz")
+          SHA_LINUX_ARM64=$(get_sha256 "gog-lite_${VERSION}_linux_arm64.tar.gz")
+          SHA_LINUX_AMD64=$(get_sha256 "gog-lite_${VERSION}_linux_amd64.tar.gz")
+
+          mkdir -p Formula
+          cat > Formula/gog-lite.rb <<RUBY
+class GogLite < Formula
+  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs"
+  homepage "https://github.com/${REPO}"
+  version "${VERSION}"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "${BASE_URL}/gog-lite_${VERSION}_darwin_arm64.tar.gz"
+      sha256 "${SHA_DARWIN_ARM64}"
+    else
+      url "${BASE_URL}/gog-lite_${VERSION}_darwin_amd64.tar.gz"
+      sha256 "${SHA_DARWIN_AMD64}"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+      url "${BASE_URL}/gog-lite_${VERSION}_linux_arm64.tar.gz"
+      sha256 "${SHA_LINUX_ARM64}"
+    else
+      url "${BASE_URL}/gog-lite_${VERSION}_linux_amd64.tar.gz"
+      sha256 "${SHA_LINUX_AMD64}"
+    end
+  end
+
+  def install
+    bin.install "gog-lite"
+  end
+
+  test do
+    system "#{bin}/gog-lite", "--version"
+  end
+end
+RUBY
+      - name: Commit and push Formula
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/gog-lite.rb
+          git commit -m "brew: update formula to ${{ needs.tag.outputs.tag }}"
+          git push

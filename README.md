@@ -17,6 +17,22 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 
 ## インストール
 
+### Homebrew（macOS / Linux）
+
+```bash
+brew tap kubot64/gog-lite https://github.com/kubot64/gog-lite
+brew install gog-lite
+```
+
+アップグレード:
+
+```bash
+brew update
+brew upgrade gog-lite
+```
+
+### ソースからビルド
+
 ```bash
 git clone https://github.com/kubot64/gog-lite
 cd gog-lite
@@ -27,13 +43,19 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~
 
 ## バージョン運用
 
-- `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
-- リリース時は Git タグ（例: `v0.2.0`）を作成し、タグ値を version に使う。
-- 例:
+- CalVer `vYYYY.MMDD.HHmm`（例: `v2026.0226.1430`）を採用。
+- タグは GitHub Actions の Release ワークフローが実行時刻から自動生成する。
+- リリースは GitHub UI または CLI からワークフローを実行するだけ:
 
 ```bash
-VERSION=$(git describe --tags --always --dirty)
-go build -ldflags "-X main.version=$VERSION" -o ~/bin/gog-lite ./cmd/gog-lite/
+gh workflow run release.yml
+```
+
+- `--version` の値はビルド時の `-ldflags "-X main.version=..."` で注入する。
+- ローカルビルドでは `dev` がデフォルト:
+
+```bash
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o ~/bin/gog-lite ./cmd/gog-lite/
 gog-lite --version
 ```
 
