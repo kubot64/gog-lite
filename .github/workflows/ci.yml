@@ -10,6 +10,16 @@ on:
     - cron: '0 2 * * *'
 
 jobs:
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate workflow YAML syntax
+        run: ./scripts/check-workflows.sh
+      - name: Lint workflows with actionlint
+        uses: rhysd/actionlint@v1
+
   unit-fast:
     name: Unit Tests
     runs-on: ubuntu-latest
