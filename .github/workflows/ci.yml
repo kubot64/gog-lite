@@ -54,7 +54,8 @@ jobs:
         run: go build -o /tmp/gog-lite ./cmd/gog-lite/
       - name: preflight returns ready=false without credentials
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           out=$(/tmp/gog-lite auth preflight --account test@example.com)
           echo "$out"
@@ -67,7 +68,8 @@ jobs:
           "
       - name: confirm-delete required for calendar delete
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           err_json=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x 2>"$err_json" && code=0 || code=$?
@@ -83,7 +85,8 @@ jobs:
           "
       - name: confirm-find-replace required for docs find-replace
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           err_json=$(mktemp)
           /tmp/gog-lite docs find-replace --account test@example.com --doc-id x --find a --replace b 2>"$err_json" && code=0 || code=$?
@@ -99,7 +102,8 @@ jobs:
           "
       - name: policy denies blocked action (calendar.delete)
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_CLIENT_ID=dummy-id
           export GOG_LITE_CLIENT_SECRET=dummy-secret
@@ -119,7 +123,8 @@ jobs:
           "
       - name: policy denies write commands
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_CLIENT_ID=dummy-id
           export GOG_LITE_CLIENT_SECRET=dummy-secret
@@ -161,7 +166,8 @@ jobs:
             "docs.export"
       - name: approval-token required when missing
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           err_json=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete 2>"$err_json" && code=0 || code=$?
@@ -177,7 +183,8 @@ jobs:
           "
       - name: approval-token reuse rejected
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_CLIENT_ID=dummy-id
           export GOG_LITE_CLIENT_SECRET=dummy-secret
@@ -203,7 +210,8 @@ jobs:
           "
       - name: dry-run skips confirm and approval-token
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           out=$(/tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x)
           echo "$out"
@@ -233,7 +241,8 @@ jobs:
         run: go build -o /tmp/gog-lite ./cmd/gog-lite/
       - name: keyring file backend requires password
         run: |
-          export HOME=$(mktemp -d)
+          HOME=$(mktemp -d)
+          export HOME
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_KEYRING_BACKEND=file
           unset GOG_LITE_KEYRING_PASSWORD
