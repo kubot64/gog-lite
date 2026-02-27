@@ -25,9 +25,10 @@ jobs:
           ref: main
       - name: Resolve tag from head SHA
         id: resolve
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          SHA="${{ github.event.workflow_run.head_sha }}"
           TAG=$(git tag --points-at "$SHA" | grep '^v' | sort -r | head -n1 || true)
 
           if [ -z "${TAG}" ]; then
@@ -59,7 +60,9 @@ jobs:
 
   update-formula:
     name: Update Homebrew Formula
-    needs: goreleaser
+    needs:
+      - goreleaser
+      - resolve-tag
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.resolve-tag.outputs.tag }}
