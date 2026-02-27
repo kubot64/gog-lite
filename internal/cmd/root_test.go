@@ -1,8 +1,14 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/kubot64/gog-lite/internal/output"
 )
 
 func TestCollectAllPages_SinglePage(t *testing.T) {
@@ -100,5 +106,80 @@ func TestCollectAllPages_ErrorMidway(t *testing.T) {
 	})
 	if !errors.Is(err, wantErr) {
 		t.Errorf("want %v, got %v", wantErr, err)
+	}
+}
+
+func TestExecute_VersionReturnsJSON(t *testing.T) {
+	prevArgs := os.Args
+	defer func() { os.Args = prevArgs }()
+	os.Args = []string{"gog-lite", "--version"}
+
+	stdout := captureStdout(t, func() {
+		if err := Execute(context.Background(), "v1.2.3"); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	})
+
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if payload.Version != "v1.2.3" {
+		t.Fatalf("version = %q, want %q", payload.Version, "v1.2.3")
+	}
+}
+
+func TestExecute_HelpReturnsJSON(t *testing.T) {
+	prevArgs := os.Args
+	defer func() { os.Args = prevArgs }()
+	os.Args = []string{"gog-lite", "--help"}
+
+	stdout := captureStdout(t, func() {
+		if err := Execute(context.Background(), "dev"); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	})
+
+	var payload struct {
+		Help string `json:"help"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if !strings.Contains(payload.Help, "Usage:") {
+		t.Fatalf("help payload missing usage: %q", payload.Help)
+	}
+}
+
+func TestExecute_ParseErrorReturnsJSON(t *testing.T) {
+	prevArgs := os.Args
+	defer func() { os.Args = prevArgs }()
+	os.Args = []string{"gog-lite", "calendar", "delete"}
+
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = Execute(context.Background(), "dev")
+	})
+	if runErr == nil {
+		t.Fatal("expected parse error")
+	}
+	if output.ExitCode(runErr) != output.ExitCodeError {
+		t.Fatalf("exit code = %d, want %d", output.ExitCode(runErr), output.ExitCodeError)
+	}
+
+	var payload struct {
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "invalid_arguments" {
+		t.Fatalf("code = %q, want %q", payload.Code, "invalid_arguments")
+	}
+	if payload.Error == "" {
+		t.Fatal("expected non-empty error message")
 	}
 }
