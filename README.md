@@ -4,16 +4,22 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 
 [gogcli](https://github.com/steipete/gogcli) の多機能さをAIエージェント向けに絞り込んだ派生版。
 
-## 特徴
+## Public Contract
 
-- **JSON専用出力** — stdout は常にJSON（`--help` / `--version` を含む）。色・表・TSVなし
-- **ヘッドレス認証** — ブラウザ自動起動なし。URLを出力して2ステップで認証完了
-- **予測可能な終了コード** — `0`=成功 / `1`=エラー / `2`=認証エラー / `3`=未発見 / `4`=権限なし
-- **エラーはstderrにJSON** — `{"error": "...", "code": "..."}` 形式（引数エラーを含む）。stdoutと混在しない
-- **stdin対応** — `--body-stdin` / `--content-stdin` でパイプ渡し可能
-- **dry-run** — 書き込み系コマンドを `--dry-run`（`-n`）で確認できる
-- **監査ログ** — `--audit-log` で書き込み操作をJSONL記録
-- **出力先制限** — `--allowed-output-dir` でファイル出力先を制限
+- **stdout は常に JSON** — `--help` / `--version` を含め、色・表・TSV は出力しない
+- **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
+- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`
+- **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
+- **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる
+- **`gmail send` は下書き保存契約** — 即時送信ではなく Gmail draft として保存する
+
+## Safety Controls
+
+- `--dry-run` — 書き込み前の事前確認
+- `--audit-log` — 書き込み操作の JSONL 監査ログ
+- `--allowed-output-dir` — ファイル出力先ディレクトリ制限
+- `--confirm-*` — 破壊的操作の明示確認
+- `--approval-token` — 高リスク操作の追加承認
 
 ## インストール
 
@@ -324,26 +330,12 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 | `sheets` | Google Sheets API | `spreadsheets.readonly` / `spreadsheets`（操作に応じて最小権限） |
 | `slides` | Google Slides API | `presentations.readonly` / `presentations`（操作に応じて最小権限） |
 
-## Breaking Changes
+## Contract Notes
 
-### gmail send — 送信から下書き保存へ（次期リリース）
-
-`gmail send` コマンドの動作が変わります。
-
-| 項目 | 変更前 | 変更後 |
-|---|---|---|
-| 動作 | メールを即時送信 | Gmail 下書きとして保存 |
-| OAuth スコープ | `gmail.send` | `gmail.compose` |
-| ポリシーアクション | `gmail.send` | `gmail.draft` |
-| 成功時 JSON | `{"id":"...","thread_id":"...","sent":true}` | `{"draft_id":"...","message_id":"...","thread_id":"...","saved":true}` |
-| エラーコード | `send_error` | `draft_error` |
-
-**移行手順:**
-
-1. `--require-actions gmail.send` を使用している箇所を `gmail.draft` に変更する
-2. 認証を再実行して `gmail.compose` スコープを付与する（`gog-lite auth login --account EMAIL --force-consent`）
-3. 成功レスポンスの `sent` / `id` フィールド参照を `saved` / `draft_id` / `message_id` に更新する
-4. エラーハンドリングの `send_error` を `draft_error` に更新する
+- `gmail send` は Gmail draft を保存するためのコマンドです。送信操作を自動化対象にはしません。
+- `--dry-run` は書き込み系操作の標準確認手段です。自動化では実行前に使う前提で設計します。
+- 公開契約として安定して守るのは、stdout/stderr の JSON 形、終了コード、主要安全制御です。
+- Google API の生レスポンス詳細より、ここに記載した CLI 契約を優先して利用してください。
 
 ## ドキュメント
 
