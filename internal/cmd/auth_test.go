@@ -22,8 +22,13 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	orig := os.Stderr
+	origOutputStderr := output.Stderr
 	os.Stderr = w
-	t.Cleanup(func() { os.Stderr = orig })
+	output.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = orig
+		output.Stderr = origOutputStderr
+	})
 
 	fn()
 
@@ -33,6 +38,7 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatalf("read stderr: %v", err)
 	}
 	os.Stderr = orig
+	output.Stderr = origOutputStderr
 	return string(b)
 }
 

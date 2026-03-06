@@ -47,7 +47,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "scope_error", err.Error())
 	}
 
-	creds, err := config.ReadCredentials()
+	creds, err := readCredentials()
 	if err != nil {
 		var credsMissing *config.CredentialsMissingError
 		if errors.As(err, &credsMissing) {
@@ -64,7 +64,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	// Step 2: exchange code for token.
 	if strings.TrimSpace(c.AuthURL) != "" {
-		result, err := googleauth.Step2(ctx, creds, opts, c.AuthURL)
+		result, err := authStep2(ctx, creds, opts, c.AuthURL)
 		if err != nil {
 			return output.WriteError(output.ExitCodeError, "auth_exchange_error", err.Error())
 		}
@@ -114,7 +114,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	// Step 1: generate auth URL.
-	step1, err := googleauth.Step1(ctx, creds, opts)
+	step1, err := authStep1(ctx, creds, opts)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "auth_url_error", err.Error())
 	}

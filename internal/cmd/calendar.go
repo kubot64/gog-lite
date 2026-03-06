@@ -248,7 +248,7 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
+	svc, err := newCalendarWriteService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}

@@ -165,7 +165,7 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	svc, err := googleapi.NewGmailWrite(ctx, c.Account)
+	svc, err := newGmailWriteService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
