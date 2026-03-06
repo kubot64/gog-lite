@@ -96,6 +96,46 @@ func TestWriteJSON_AugmentsStructPayloadsWithoutInjectingDryRun(t *testing.T) {
 	}
 }
 
+func TestWriteJSON_DoesNotInjectDryRunForNonDryRunActionResponses(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.WriteJSON(&buf, map[string]any{
+		"saved":      true,
+		"draft_id":   "draft-123",
+		"message_id": "msg-123",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("parse JSON: %v", err)
+	}
+	if payload["action"] != "gmail.draft" {
+		t.Fatalf("action = %#v", payload["action"])
+	}
+	if _, ok := payload["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run on non-dry-run success payload: %+v", payload)
+	}
+}
+
+func TestWriteJSON_UsesDeterministicResourceTypePrecedence(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.WriteJSON(&buf, map[string]any{
+		"messages":  []map[string]string{{"id": "m1"}},
+		"calendars": []map[string]string{{"id": "c1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("parse JSON: %v", err)
+	}
+	if payload["resource_type"] != "calendar" {
+		t.Fatalf("resource_type = %#v", payload["resource_type"])
+	}
+}
+
 func TestWriteJSON_InfersActionAccountAndTarget(t *testing.T) {
 	var buf bytes.Buffer
 	if err := output.WriteJSON(&buf, map[string]any{

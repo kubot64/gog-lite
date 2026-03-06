@@ -142,11 +142,6 @@ func augmentSuccessPayload(payload map[string]any) map[string]any {
 			out["action"] = action
 		}
 	}
-	if _, ok := out["dry_run"]; !ok {
-		if _, ok := out["action"]; ok {
-			out["dry_run"] = false
-		}
-	}
 
 	return out
 }
@@ -175,16 +170,19 @@ func normalizeJSONObject(val any) (map[string]any, bool, error) {
 }
 
 func inferResourceType(payload map[string]any) string {
-	for key, resourceType := range map[string]string{
-		"accounts":     "account",
-		"events":       "event",
-		"calendars":    "calendar",
-		"messages":     "message",
-		"labels":       "label",
-		"spreadsheets": "spreadsheet",
+	for _, candidate := range []struct {
+		key          string
+		resourceType string
+	}{
+		{key: "accounts", resourceType: "account"},
+		{key: "events", resourceType: "event"},
+		{key: "calendars", resourceType: "calendar"},
+		{key: "messages", resourceType: "message"},
+		{key: "labels", resourceType: "label"},
+		{key: "spreadsheets", resourceType: "spreadsheet"},
 	} {
-		if _, ok := payload[key]; ok {
-			return resourceType
+		if _, ok := payload[candidate.key]; ok {
+			return candidate.resourceType
 		}
 	}
 
@@ -200,22 +198,25 @@ func inferResourceType(payload map[string]any) string {
 		}
 	}
 
-	for key, resourceType := range map[string]string{
-		"draft_id":        "draft",
-		"doc_id":          "document",
-		"spreadsheet":     "spreadsheet",
-		"spreadsheet_id":  "spreadsheet",
-		"presentation_id": "presentation",
-		"event_id":        "event",
-		"calendar_id":     "calendar",
-		"thread_id":       "thread",
-		"message_id":      "message",
-		"email":           "account",
-		"output":          "file",
-		"id":              "resource",
+	for _, candidate := range []struct {
+		key          string
+		resourceType string
+	}{
+		{key: "draft_id", resourceType: "draft"},
+		{key: "doc_id", resourceType: "document"},
+		{key: "spreadsheet", resourceType: "spreadsheet"},
+		{key: "spreadsheet_id", resourceType: "spreadsheet"},
+		{key: "presentation_id", resourceType: "presentation"},
+		{key: "event_id", resourceType: "event"},
+		{key: "calendar_id", resourceType: "calendar"},
+		{key: "thread_id", resourceType: "thread"},
+		{key: "message_id", resourceType: "message"},
+		{key: "email", resourceType: "account"},
+		{key: "output", resourceType: "file"},
+		{key: "id", resourceType: "resource"},
 	} {
-		if _, ok := payload[key]; ok {
-			return resourceType
+		if _, ok := payload[candidate.key]; ok {
+			return candidate.resourceType
 		}
 	}
 
@@ -260,11 +261,6 @@ func inferAction(payload map[string]any, params map[string]any) (any, bool) {
 	if _, ok := payload["calendar_id"]; ok {
 		if _, ok := payload["summary"]; ok {
 			return "calendar.create", true
-		}
-	}
-	if params != nil {
-		if action, ok := payload["action"]; ok {
-			return action, true
 		}
 	}
 

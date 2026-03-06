@@ -206,6 +206,13 @@ func TestGmailSendCmd_HappyPath(t *testing.T) {
 	if !payload.Saved || payload.DraftID != "draft-123" || payload.MessageID != "msg-123" || payload.ThreadID != "thread-123" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
+	var payloadMap map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payloadMap); err != nil {
+		t.Fatalf("parse stdout JSON as map: %v", err)
+	}
+	if _, ok := payloadMap["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run in non-dry-run gmail send response: %+v", payloadMap)
+	}
 }
 
 func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
@@ -313,6 +320,13 @@ func TestCalendarCreateCmd_HappyPath(t *testing.T) {
 	if payload.ID != "event-123" || payload.Summary != "Team MTG" || payload.HTMLLink == "" || payload.CalendarID != "primary" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
+	var payloadMap map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payloadMap); err != nil {
+		t.Fatalf("parse stdout JSON as map: %v", err)
+	}
+	if _, ok := payloadMap["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run in non-dry-run calendar create response: %+v", payloadMap)
+	}
 }
 
 func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
@@ -413,6 +427,13 @@ func TestDocsWriteCmd_HappyPath(t *testing.T) {
 	}
 	if !payload.Written || payload.DocID != "doc-123" || payload.Replace {
 		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	var payloadMap map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payloadMap); err != nil {
+		t.Fatalf("parse stdout JSON as map: %v", err)
+	}
+	if _, ok := payloadMap["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run in non-dry-run docs write response: %+v", payloadMap)
 	}
 }
 
