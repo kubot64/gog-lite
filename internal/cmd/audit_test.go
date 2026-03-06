@@ -157,3 +157,26 @@ func TestResolveAuditLogPath_AllowsPathUnderConfigDir(t *testing.T) {
 		t.Fatalf("expected allowed path, got error: %v", err)
 	}
 }
+
+func TestResolveAuditLogPath_RejectsSymlinkEscape(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	base, err := resolveAuditLogPath("")
+	if err != nil {
+		t.Fatalf("resolve base path: %v", err)
+	}
+
+	configDir := filepath.Dir(base)
+	outsideDir := t.TempDir()
+	linkPath := filepath.Join(configDir, "escape")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	escaped := filepath.Join(linkPath, "audit.log")
+	if _, err := resolveAuditLogPath(escaped); err == nil {
+		t.Fatal("expected symlink escape path to be rejected")
+	}
+}

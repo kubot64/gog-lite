@@ -32,33 +32,35 @@ func enforceRateLimit(action string, limit int, window time.Duration) error {
 		return err
 	}
 
-	state, err := loadRateLimitState(path)
-	if err != nil {
-		return err
-	}
-
-	now := nowUTC()
-	cutoff := now.Add(-window)
-
-	kept := make([]string, 0, len(state.Timestamps)+1)
-	for _, ts := range state.Timestamps {
-		t, err := time.Parse(time.RFC3339, ts)
+	return withFileLock(path, func() error {
+		state, err := loadRateLimitState(path)
 		if err != nil {
-			continue
+			return err
 		}
-		if !t.Before(cutoff) {
-			kept = append(kept, ts)
+
+		now := nowUTC()
+		cutoff := now.Add(-window)
+
+		kept := make([]string, 0, len(state.Timestamps)+1)
+		for _, ts := range state.Timestamps {
+			t, err := time.Parse(time.RFC3339, ts)
+			if err != nil {
+				return fmt.Errorf("decode rate limit timestamp: %w", err)
+			}
+			if !t.Before(cutoff) {
+				kept = append(kept, ts)
+			}
 		}
-	}
 
-	if len(kept) >= limit {
-		return fmt.Errorf("rate limit exceeded for %s: max %d per %s", action, limit, window)
-	}
+		if len(kept) >= limit {
+			return fmt.Errorf("rate limit exceeded for %s: max %d per %s", action, limit, window)
+		}
 
-	kept = append(kept, now.Format(time.RFC3339))
-	state.Timestamps = kept
+		kept = append(kept, now.Format(time.RFC3339))
+		state.Timestamps = kept
 
-	return saveRateLimitState(path, state)
+		return saveRateLimitState(path, state)
+	})
 }
 
 func rateLimitPath(action string) (string, error) {
@@ -92,7 +94,7 @@ func loadRateLimitState(path string) (rateLimitState, error) {
 
 	var st rateLimitState
 	if err := json.Unmarshal(b, &st); err != nil {
-		return rateLimitState{}, nil
+		return rateLimitState{}, fmt.Errorf("decode rate limit state: %w", err)
 	}
 
 	return st, nil
