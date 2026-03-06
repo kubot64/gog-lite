@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kubot64/gog-lite/internal/config"
@@ -23,6 +24,8 @@ type auditEntry struct {
 	Hash      string `json:"hash"`
 }
 
+var auditLogMu sync.Mutex
+
 func appendAuditLog(path string, entry auditEntry) error {
 	path, err := resolveAuditLogPath(path)
 	if err != nil {
@@ -31,6 +34,9 @@ func appendAuditLog(path string, entry auditEntry) error {
 	if entry.Timestamp == "" {
 		entry.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
+
+	auditLogMu.Lock()
+	defer auditLogMu.Unlock()
 
 	prevHash, err := lastAuditHash(path)
 	if err != nil {

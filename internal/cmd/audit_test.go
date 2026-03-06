@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"strings"
 	"testing"
 )
@@ -178,5 +179,66 @@ func TestResolveAuditLogPath_RejectsSymlinkEscape(t *testing.T) {
 	escaped := filepath.Join(linkPath, "audit.log")
 	if _, err := resolveAuditLogPath(escaped); err == nil {
 		t.Fatal("expected symlink escape path to be rejected")
+	}
+}
+
+func TestAppendAuditLog_ConcurrentHashChain(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	path, err := resolveAuditLogPath("")
+	if err != nil {
+		t.Fatalf("resolveAuditLogPath: %v", err)
+	}
+
+	const writers = 32
+	var wg sync.WaitGroup
+	errCh := make(chan error, writers)
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errCh <- appendAuditLog(path, auditEntry{
+				Action:  "concurrent.write",
+				Account: "user@example.com",
+				Target:  filepath.Base(path),
+				DryRun:  i%2 == 0,
+			})
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("appendAuditLog: %v", err)
+		}
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read audit file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != writers {
+		t.Fatalf("want %d lines, got %d", writers, len(lines))
+	}
+
+	var prevHash string
+	for i, line := range lines {
+		var entry auditEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decode line %d: %v; line=%q", i, err, line)
+		}
+		if entry.PrevHash != prevHash {
+			t.Fatalf("line %d prev_hash=%q want %q", i, entry.PrevHash, prevHash)
+		}
+		if entry.Hash != computeAuditHash(entry) {
+			t.Fatalf("line %d hash mismatch", i)
+		}
+		prevHash = entry.Hash
 	}
 }
