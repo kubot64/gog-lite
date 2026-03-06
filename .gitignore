@@ -38,4 +38,5 @@ approvals/
 
 # Dolt database files (added by bd init)
 .dolt/
+.beads/
 *.db
