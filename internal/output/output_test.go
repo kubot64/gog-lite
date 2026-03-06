@@ -47,7 +47,6 @@ func TestWriteJSON_AddsSharedSuccessMetadata(t *testing.T) {
 	var payload struct {
 		OK            bool   `json:"ok"`
 		ResourceType  string `json:"resource_type"`
-		DryRun        bool   `json:"dry_run"`
 		HasMore       bool   `json:"has_more"`
 		NextPageToken string `json:"nextPageToken"`
 		NextPageSnake string `json:"next_page_token"`
@@ -61,11 +60,39 @@ func TestWriteJSON_AddsSharedSuccessMetadata(t *testing.T) {
 	if payload.ResourceType != "message" {
 		t.Fatalf("resource_type = %q", payload.ResourceType)
 	}
-	if payload.DryRun {
-		t.Fatal("expected dry_run=false default")
-	}
 	if !payload.HasMore || payload.NextPageToken != "token-123" || payload.NextPageSnake != "token-123" {
 		t.Fatalf("unexpected pagination metadata: %+v", payload)
+	}
+}
+
+func TestWriteJSON_AugmentsStructPayloadsWithoutInjectingDryRun(t *testing.T) {
+	type messagePayload struct {
+		ID       string   `json:"id"`
+		ThreadID string   `json:"threadId"`
+		LabelIDs []string `json:"labelIds"`
+	}
+
+	var buf bytes.Buffer
+	if err := output.WriteJSON(&buf, messagePayload{
+		ID:       "msg-123",
+		ThreadID: "thread-123",
+		LabelIDs: []string{"INBOX"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("parse JSON: %v", err)
+	}
+	if payload["ok"] != true {
+		t.Fatalf("ok = %#v", payload["ok"])
+	}
+	if payload["resource_type"] != "message" {
+		t.Fatalf("resource_type = %#v", payload["resource_type"])
+	}
+	if _, ok := payload["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run in read-only struct payload: %+v", payload)
 	}
 }
 

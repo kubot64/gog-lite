@@ -32,7 +32,7 @@ func (c *CalendarCalendarsCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
+	svc, err := newCalendarReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -95,7 +95,7 @@ func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
 	}
 
-	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
+	svc, err := newCalendarReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -185,7 +185,7 @@ func (c *CalendarGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := googleapi.NewCalendarReadOnly(ctx, c.Account)
+	svc, err := newCalendarReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}

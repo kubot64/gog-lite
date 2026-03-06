@@ -341,12 +341,10 @@ func (c *AuthEmergencyRevokeCmd) Run(_ context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "remove_error", err.Error())
 	}
 
-	p, err := config.ReadPolicy()
-	if err != nil {
-		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-	}
-	p.BlockedAccounts = append(p.BlockedAccounts, account)
-	if err := config.WritePolicy(p); err != nil {
+	if err := config.UpdatePolicy(func(p *config.PolicyFile) error {
+		p.BlockedAccounts = append(p.BlockedAccounts, account)
+		return nil
+	}); err != nil {
 		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
 	}
 	if err := appendAuditLog(root.AuditLog, auditEntry{

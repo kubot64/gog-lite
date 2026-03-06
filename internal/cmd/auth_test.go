@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -305,4 +306,70 @@ func TestEmergencyRevokeCmd_BlocksAccount(t *testing.T) {
 		}
 	}
 	t.Errorf("expected %q to be in blocked_accounts, got %v", account, p.BlockedAccounts)
+}
+
+func TestEmergencyRevokeCmd_ConcurrentPolicyUpdates(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("GOG_LITE_KEYRING_BACKEND", "file")
+	t.Setenv("GOG_LITE_KEYRING_PASSWORD", "test-password")
+	t.Setenv("GOG_LITE_CLIENT_ID", "dummy-id")
+	t.Setenv("GOG_LITE_CLIENT_SECRET", "dummy-secret")
+
+	if err := config.WritePolicy(config.PolicyFile{
+		RequireApprovalActions: []string{"calendar.delete"},
+	}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	accounts := []string{"alpha@example.com", "beta@example.com", "gamma@example.com"}
+	store, err := secrets.OpenDefault()
+	if err != nil {
+		t.Fatalf("OpenDefault: %v", err)
+	}
+	for _, account := range accounts {
+		if err := store.SetToken(account, secrets.Token{RefreshToken: "dummy-refresh"}); err != nil {
+			t.Fatalf("SetToken(%q): %v", account, err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(accounts))
+	for _, account := range accounts {
+		account := account
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- (&AuthEmergencyRevokeCmd{Account: account}).Run(context.Background(), &RootFlags{})
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("AuthEmergencyRevokeCmd.Run: %v", err)
+		}
+	}
+
+	p, err := config.ReadPolicy()
+	if err != nil {
+		t.Fatalf("ReadPolicy: %v", err)
+	}
+	for _, account := range accounts {
+		found := false
+		for _, blocked := range p.BlockedAccounts {
+			if blocked == account {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing blocked account %q in %v", account, p.BlockedAccounts)
+		}
+	}
+	if len(p.RequireApprovalActions) != 1 || p.RequireApprovalActions[0] != "calendar.delete" {
+		t.Fatalf("approval actions lost or changed: %v", p.RequireApprovalActions)
+	}
 }

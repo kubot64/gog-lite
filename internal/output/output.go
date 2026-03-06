@@ -90,7 +90,7 @@ func Errorf(code int, codeStr, format string, args ...any) error {
 }
 
 func WriteJSON(w io.Writer, val any) error {
-	if payload, ok := val.(map[string]any); ok {
+	if payload, ok, err := normalizeJSONObject(val); err == nil && ok {
 		val = augmentSuccessPayload(payload)
 	}
 
@@ -126,10 +126,6 @@ func augmentSuccessPayload(payload map[string]any) map[string]any {
 		}
 	}
 
-	if _, ok := out["dry_run"]; !ok {
-		out["dry_run"] = false
-	}
-
 	params, _ := out["params"].(map[string]any)
 	if _, ok := out["account"]; !ok && params != nil {
 		if account, ok := params["account"]; ok {
@@ -146,8 +142,36 @@ func augmentSuccessPayload(payload map[string]any) map[string]any {
 			out["action"] = action
 		}
 	}
+	if _, ok := out["dry_run"]; !ok {
+		if _, ok := out["action"]; ok {
+			out["dry_run"] = false
+		}
+	}
 
 	return out
+}
+
+func normalizeJSONObject(val any) (map[string]any, bool, error) {
+	if payload, ok := val.(map[string]any); ok {
+		out := make(map[string]any, len(payload))
+		for k, v := range payload {
+			out[k] = v
+		}
+		return out, true, nil
+	}
+
+	b, err := json.Marshal(val)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var payload any
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return nil, false, err
+	}
+
+	m, ok := payload.(map[string]any)
+	return m, ok, nil
 }
 
 func inferResourceType(payload map[string]any) string {
@@ -161,6 +185,18 @@ func inferResourceType(payload map[string]any) string {
 	} {
 		if _, ok := payload[key]; ok {
 			return resourceType
+		}
+	}
+
+	if _, ok := payload["threadId"]; ok {
+		if _, hasLabels := payload["labelIds"]; hasLabels {
+			return "message"
+		}
+		return "thread"
+	}
+	if _, ok := payload["htmlLink"]; ok {
+		if _, hasSummary := payload["summary"]; hasSummary {
+			return "event"
 		}
 	}
 

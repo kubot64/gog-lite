@@ -208,6 +208,51 @@ func TestGmailSendCmd_HappyPath(t *testing.T) {
 	}
 }
 
+func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
+	origFactory := newGmailReadOnlyService
+	t.Cleanup(func() { newGmailReadOnlyService = origFactory })
+
+	newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
+		return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			if r.URL.Path != "/gmail/v1/users/me/messages/msg-123" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":       "msg-123",
+				"threadId": "thread-123",
+				"labelIds": []string{"INBOX"},
+			})
+		})
+	}
+
+	cmd := &GmailGetCmd{
+		Account:   "you@gmail.com",
+		MessageID: "msg-123",
+		Format:    "full",
+	}
+	stdout := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	})
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if payload["ok"] != true || payload["resource_type"] != "message" || payload["id"] != "msg-123" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if _, ok := payload["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run for read-only payload: %+v", payload)
+	}
+}
+
 func TestCalendarCreateCmd_HappyPath(t *testing.T) {
 	origFactory := newCalendarWriteService
 	t.Cleanup(func() { newCalendarWriteService = origFactory })
@@ -267,6 +312,51 @@ func TestCalendarCreateCmd_HappyPath(t *testing.T) {
 	}
 	if payload.ID != "event-123" || payload.Summary != "Team MTG" || payload.HTMLLink == "" || payload.CalendarID != "primary" {
 		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
+func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
+	origFactory := newCalendarReadOnlyService
+	t.Cleanup(func() { newCalendarReadOnlyService = origFactory })
+
+	newCalendarReadOnlyService = func(ctx context.Context, _ string) (*calendar.Service, error) {
+		return newTestCalendarService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			if r.URL.Path != "/calendar/v3/calendars/primary/events/event-123" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":       "event-123",
+				"summary":  "Team MTG",
+				"htmlLink": "https://calendar.google.com/event?eid=event-123",
+			})
+		})
+	}
+
+	cmd := &CalendarGetCmd{
+		Account:    "you@gmail.com",
+		EventID:    "event-123",
+		CalendarID: "primary",
+	}
+	stdout := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	})
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if payload["ok"] != true || payload["resource_type"] != "event" || payload["id"] != "event-123" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if _, ok := payload["dry_run"]; ok {
+		t.Fatalf("did not expect dry_run for read-only payload: %+v", payload)
 	}
 }
 

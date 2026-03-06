@@ -14,16 +14,20 @@ import (
 )
 
 var (
-	readCredentials         = config.ReadCredentials
-	authStep1               = googleauth.Step1
-	authStep2               = googleauth.Step2
-	newGmailWriteService    = googleapi.NewGmailWrite
-	newCalendarWriteService = googleapi.NewCalendarWrite
-	newDocsWriteService     = googleapi.NewDocsWrite
-	newDriveReadOnlyService = googleapi.NewDriveReadOnly
+	readCredentials            = config.ReadCredentials
+	authStep1                  = googleauth.Step1
+	authStep2                  = googleauth.Step2
+	newGmailReadOnlyService    = googleapi.NewGmailReadOnly
+	newGmailWriteService       = googleapi.NewGmailWrite
+	newCalendarReadOnlyService = googleapi.NewCalendarReadOnly
+	newCalendarWriteService    = googleapi.NewCalendarWrite
+	newDocsWriteService        = googleapi.NewDocsWrite
+	newDriveReadOnlyService    = googleapi.NewDriveReadOnly
 )
 
+type gmailReadOnlyServiceFactory func(context.Context, string) (*gmail.Service, error)
 type gmailWriteServiceFactory func(context.Context, string) (*gmail.Service, error)
+type calendarReadOnlyServiceFactory func(context.Context, string) (*calendar.Service, error)
 type calendarWriteServiceFactory func(context.Context, string) (*calendar.Service, error)
 type docsWriteServiceFactory func(context.Context, string) (*docs.Service, error)
 type driveReadOnlyServiceFactory func(context.Context, string) (*drive.Service, error)
