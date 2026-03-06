@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -106,5 +108,38 @@ func TestConsumeApprovalToken_RejectsTraversal(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid format") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConsumeApprovalToken_ConcurrentSingleSuccess(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	token, _, err := issueApprovalToken("you@example.com", "calendar.delete", time.Minute)
+	if err != nil {
+		t.Fatalf("issueApprovalToken: %v", err)
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var successCount atomic.Int32
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if err := consumeApprovalToken("you@example.com", "calendar.delete", token); err == nil {
+				successCount.Add(1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if got := successCount.Load(); got != 1 {
+		t.Fatalf("successCount = %d, want 1", got)
 	}
 }

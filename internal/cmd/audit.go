@@ -67,26 +67,26 @@ func resolveAuditLogPath(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve config dir: %w", err)
 	}
-	baseAbs, err := filepath.Abs(base)
+	baseResolved, err := resolvePathForContainment(base)
 	if err != nil {
 		return "", fmt.Errorf("resolve config dir absolute path: %w", err)
 	}
 
 	if strings.TrimSpace(path) == "" {
-		return filepath.Join(baseAbs, "audit.log"), nil
+		return filepath.Join(baseResolved, "audit.log"), nil
 	}
 
-	candidate, err := filepath.Abs(path)
+	candidate, err := resolvePathForContainment(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve audit log path: %w", err)
 	}
-	if candidate == baseAbs {
+	if candidate == baseResolved {
 		return "", fmt.Errorf("audit log path cannot be config directory itself")
 	}
 
-	prefix := baseAbs + string(os.PathSeparator)
+	prefix := baseResolved + string(os.PathSeparator)
 	if !strings.HasPrefix(candidate, prefix) {
-		return "", fmt.Errorf("audit log path must be under %s", baseAbs)
+		return "", fmt.Errorf("audit log path must be under %s", baseResolved)
 	}
 
 	return candidate, nil

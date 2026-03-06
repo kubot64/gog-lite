@@ -80,42 +80,48 @@ func consumeApprovalToken(account, action, token string) error {
 		return err
 	}
 
-	b, err := os.ReadFile(path) //nolint:gosec
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("approval token not found")
+	return withFileLock(path, func() error {
+		if err := rejectApprovalTokenSymlink(path); err != nil {
+			return err
 		}
 
-		return fmt.Errorf("read approval token: %w", err)
-	}
+		b, err := os.ReadFile(path) //nolint:gosec
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("approval token not found")
+			}
 
-	var st approvalTokenState
-	if err := json.Unmarshal(b, &st); err != nil {
-		return fmt.Errorf("decode approval token: %w", err)
-	}
+			return fmt.Errorf("read approval token: %w", err)
+		}
 
-	if st.Used {
-		return fmt.Errorf("approval token already used")
-	}
-	if st.Account != account || st.Action != action {
-		return fmt.Errorf("approval token does not match account/action")
-	}
+		var st approvalTokenState
+		if err := json.Unmarshal(b, &st); err != nil {
+			return fmt.Errorf("decode approval token: %w", err)
+		}
 
-	exp, err := time.Parse(time.RFC3339, st.ExpiresAt)
-	if err != nil || time.Now().UTC().After(exp) {
-		return fmt.Errorf("approval token expired")
-	}
+		if st.Used {
+			return fmt.Errorf("approval token already used")
+		}
+		if st.Account != account || st.Action != action {
+			return fmt.Errorf("approval token does not match account/action")
+		}
 
-	st.Used = true
-	out, err := json.Marshal(st)
-	if err != nil {
-		return fmt.Errorf("encode approval token: %w", err)
-	}
-	if err := writeApprovalTokenBytes(path, out); err != nil {
-		return fmt.Errorf("mark approval token used: %w", err)
-	}
+		exp, err := time.Parse(time.RFC3339, st.ExpiresAt)
+		if err != nil || time.Now().UTC().After(exp) {
+			return fmt.Errorf("approval token expired")
+		}
 
-	return nil
+		st.Used = true
+		out, err := json.Marshal(st)
+		if err != nil {
+			return fmt.Errorf("encode approval token: %w", err)
+		}
+		if err := writeApprovalTokenBytes(path, out); err != nil {
+			return fmt.Errorf("mark approval token used: %w", err)
+		}
+
+		return nil
+	})
 }
 
 func approvalTokenPath(token string) (string, error) {
