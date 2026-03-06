@@ -42,7 +42,7 @@ func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	svc, err := newGmailReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -95,7 +95,7 @@ func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := newGmailReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -165,7 +165,7 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	svc, err := newGmailWriteService(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailWriteService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -248,7 +248,7 @@ func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := newGmailReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -271,7 +271,7 @@ func (c *GmailLabelsCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := newGmailReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}

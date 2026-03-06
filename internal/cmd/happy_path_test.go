@@ -27,39 +27,33 @@ func TestAuthLoginCmd_TwoStepHappyPath(t *testing.T) {
 	t.Setenv("GOG_LITE_KEYRING_BACKEND", "file")
 	t.Setenv("GOG_LITE_KEYRING_PASSWORD", "test-password")
 
-	origReadCredentials := readCredentials
-	origAuthStep1 := authStep1
-	origAuthStep2 := authStep2
-	t.Cleanup(func() {
-		readCredentials = origReadCredentials
-		authStep1 = origAuthStep1
-		authStep2 = origAuthStep2
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.readCredentials = func() (config.ClientCredentials, error) {
+			return config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}, nil
+		}
+		d.authStep1 = func(_ context.Context, _ config.ClientCredentials, opts googleauth.AuthorizeOptions) (googleauth.Step1Result, error) {
+			if len(opts.Scopes) == 0 {
+				t.Fatal("expected scopes for auth step1")
+			}
+			return googleauth.Step1Result{
+				AuthURL:  "https://accounts.example.com/auth?state=test-state",
+				NextStep: "Open the URL and paste the redirect URL.",
+			}, nil
+		}
+		d.authStep2 = func(_ context.Context, _ config.ClientCredentials, opts googleauth.AuthorizeOptions, authURL string) (googleauth.Step2Result, error) {
+			if len(opts.Scopes) == 0 {
+				t.Fatal("expected scopes for auth step2")
+			}
+			if !strings.Contains(authURL, "code=test-code") {
+				t.Fatalf("unexpected auth URL %q", authURL)
+			}
+			return googleauth.Step2Result{
+				Email:        "you@gmail.com",
+				RefreshToken: "refresh-token",
+			}, nil
+		}
 	})
-
-	readCredentials = func() (config.ClientCredentials, error) {
-		return config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}, nil
-	}
-	authStep1 = func(_ context.Context, _ config.ClientCredentials, opts googleauth.AuthorizeOptions) (googleauth.Step1Result, error) {
-		if len(opts.Scopes) == 0 {
-			t.Fatal("expected scopes for auth step1")
-		}
-		return googleauth.Step1Result{
-			AuthURL:  "https://accounts.example.com/auth?state=test-state",
-			NextStep: "Open the URL and paste the redirect URL.",
-		}, nil
-	}
-	authStep2 = func(_ context.Context, _ config.ClientCredentials, opts googleauth.AuthorizeOptions, authURL string) (googleauth.Step2Result, error) {
-		if len(opts.Scopes) == 0 {
-			t.Fatal("expected scopes for auth step2")
-		}
-		if !strings.Contains(authURL, "code=test-code") {
-			t.Fatalf("unexpected auth URL %q", authURL)
-		}
-		return googleauth.Step2Result{
-			Email:        "you@gmail.com",
-			RefreshToken: "refresh-token",
-		}, nil
-	}
+	t.Cleanup(restoreDeps)
 
 	step1Cmd := &AuthLoginCmd{
 		Account:  "you@gmail.com",
@@ -137,39 +131,39 @@ func TestAuthLoginCmd_TwoStepHappyPath(t *testing.T) {
 }
 
 func TestGmailSendCmd_HappyPath(t *testing.T) {
-	origFactory := newGmailWriteService
-	t.Cleanup(func() { newGmailWriteService = origFactory })
-
 	var gotRaw string
-	newGmailWriteService = func(ctx context.Context, _ string) (*gmail.Service, error) {
-		return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				t.Fatalf("method = %s, want POST", r.Method)
-			}
-			if r.URL.Path != "/gmail/v1/users/me/drafts" {
-				t.Fatalf("path = %q", r.URL.Path)
-			}
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newGmailWriteService = func(ctx context.Context, _ string) (*gmail.Service, error) {
+			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Fatalf("method = %s, want POST", r.Method)
+				}
+				if r.URL.Path != "/gmail/v1/users/me/drafts" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
 
-			var req struct {
-				Message struct {
-					Raw string `json:"raw"`
-				} `json:"message"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatalf("decode request: %v", err)
-			}
-			gotRaw = req.Message.Raw
+				var req struct {
+					Message struct {
+						Raw string `json:"raw"`
+					} `json:"message"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+				gotRaw = req.Message.Raw
 
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id": "draft-123",
-				"message": map[string]any{
-					"id":       "msg-123",
-					"threadId": "thread-123",
-				},
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": "draft-123",
+					"message": map[string]any{
+						"id":       "msg-123",
+						"threadId": "thread-123",
+					},
+				})
 			})
-		})
-	}
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	cmd := &GmailSendCmd{
 		Account: "sender@example.com",
@@ -216,26 +210,26 @@ func TestGmailSendCmd_HappyPath(t *testing.T) {
 }
 
 func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
-	origFactory := newGmailReadOnlyService
-	t.Cleanup(func() { newGmailReadOnlyService = origFactory })
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
+			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Fatalf("method = %s, want GET", r.Method)
+				}
+				if r.URL.Path != "/gmail/v1/users/me/messages/msg-123" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
 
-	newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
-		return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				t.Fatalf("method = %s, want GET", r.Method)
-			}
-			if r.URL.Path != "/gmail/v1/users/me/messages/msg-123" {
-				t.Fatalf("path = %q", r.URL.Path)
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":       "msg-123",
-				"threadId": "thread-123",
-				"labelIds": []string{"INBOX"},
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":       "msg-123",
+					"threadId": "thread-123",
+					"labelIds": []string{"INBOX"},
+				})
 			})
-		})
-	}
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	cmd := &GmailGetCmd{
 		Account:   "you@gmail.com",
@@ -261,33 +255,33 @@ func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
 }
 
 func TestCalendarCreateCmd_HappyPath(t *testing.T) {
-	origFactory := newCalendarWriteService
-	t.Cleanup(func() { newCalendarWriteService = origFactory })
-
 	var reqBody []byte
-	newCalendarWriteService = func(ctx context.Context, _ string) (*calendar.Service, error) {
-		return newTestCalendarService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				t.Fatalf("method = %s, want POST", r.Method)
-			}
-			if r.URL.Path != "/calendar/v3/calendars/primary/events" {
-				t.Fatalf("path = %q", r.URL.Path)
-			}
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newCalendarWriteService = func(ctx context.Context, _ string) (*calendar.Service, error) {
+			return newTestCalendarService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Fatalf("method = %s, want POST", r.Method)
+				}
+				if r.URL.Path != "/calendar/v3/calendars/primary/events" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
 
-			var err error
-			reqBody, err = io.ReadAll(r.Body)
-			if err != nil {
-				t.Fatalf("read request body: %v", err)
-			}
+				var err error
+				reqBody, err = io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
 
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":       "event-123",
-				"summary":  "Team MTG",
-				"htmlLink": "https://calendar.google.com/event?eid=event-123",
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":       "event-123",
+					"summary":  "Team MTG",
+					"htmlLink": "https://calendar.google.com/event?eid=event-123",
+				})
 			})
-		})
-	}
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	cmd := &CalendarCreateCmd{
 		Account:    "you@gmail.com",
@@ -330,26 +324,26 @@ func TestCalendarCreateCmd_HappyPath(t *testing.T) {
 }
 
 func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
-	origFactory := newCalendarReadOnlyService
-	t.Cleanup(func() { newCalendarReadOnlyService = origFactory })
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newCalendarReadOnlyService = func(ctx context.Context, _ string) (*calendar.Service, error) {
+			return newTestCalendarService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Fatalf("method = %s, want GET", r.Method)
+				}
+				if r.URL.Path != "/calendar/v3/calendars/primary/events/event-123" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
 
-	newCalendarReadOnlyService = func(ctx context.Context, _ string) (*calendar.Service, error) {
-		return newTestCalendarService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				t.Fatalf("method = %s, want GET", r.Method)
-			}
-			if r.URL.Path != "/calendar/v3/calendars/primary/events/event-123" {
-				t.Fatalf("path = %q", r.URL.Path)
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":       "event-123",
-				"summary":  "Team MTG",
-				"htmlLink": "https://calendar.google.com/event?eid=event-123",
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":       "event-123",
+					"summary":  "Team MTG",
+					"htmlLink": "https://calendar.google.com/event?eid=event-123",
+				})
 			})
-		})
-	}
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	cmd := &CalendarGetCmd{
 		Account:    "you@gmail.com",
@@ -375,32 +369,32 @@ func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
 }
 
 func TestDocsWriteCmd_HappyPath(t *testing.T) {
-	origFactory := newDocsWriteService
-	t.Cleanup(func() { newDocsWriteService = origFactory })
-
 	var reqBody []byte
-	newDocsWriteService = func(ctx context.Context, _ string) (*docs.Service, error) {
-		return newTestDocsService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				t.Fatalf("method = %s, want POST", r.Method)
-			}
-			if r.URL.Path != "/v1/documents/doc-123:batchUpdate" {
-				t.Fatalf("path = %q", r.URL.Path)
-			}
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newDocsWriteService = func(ctx context.Context, _ string) (*docs.Service, error) {
+			return newTestDocsService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Fatalf("method = %s, want POST", r.Method)
+				}
+				if r.URL.Path != "/v1/documents/doc-123:batchUpdate" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
 
-			var err error
-			reqBody, err = io.ReadAll(r.Body)
-			if err != nil {
-				t.Fatalf("read request body: %v", err)
-			}
+				var err error
+				reqBody, err = io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
 
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"documentId": "doc-123",
-				"replies":    []any{},
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"documentId": "doc-123",
+					"replies":    []any{},
+				})
 			})
-		})
-	}
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	cmd := &DocsWriteCmd{
 		Account: "you@gmail.com",

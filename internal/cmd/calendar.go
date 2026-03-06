@@ -32,7 +32,7 @@ func (c *CalendarCalendarsCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := newCalendarReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newCalendarReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -95,7 +95,7 @@ func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "invalid_time", err.Error())
 	}
 
-	svc, err := newCalendarReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newCalendarReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -185,7 +185,7 @@ func (c *CalendarGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := newCalendarReadOnlyService(ctx, c.Account)
+	svc, err := currentCommandDeps().newCalendarReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}
@@ -248,7 +248,7 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	svc, err := newCalendarWriteService(ctx, c.Account)
+	svc, err := currentCommandDeps().newCalendarWriteService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}

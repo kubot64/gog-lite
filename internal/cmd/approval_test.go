@@ -124,6 +124,7 @@ func TestConsumeApprovalToken_ConcurrentSingleSuccess(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	var successCount atomic.Int32
+	errs := make(chan error, 8)
 
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -132,14 +133,45 @@ func TestConsumeApprovalToken_ConcurrentSingleSuccess(t *testing.T) {
 			<-start
 			if err := consumeApprovalToken("you@example.com", "calendar.delete", token); err == nil {
 				successCount.Add(1)
+			} else {
+				errs <- err
 			}
 		}()
 	}
 
 	close(start)
 	wg.Wait()
+	close(errs)
 
 	if got := successCount.Load(); got != 1 {
 		t.Fatalf("successCount = %d, want 1", got)
+	}
+
+	var failureCount int
+	for err := range errs {
+		failureCount++
+		if !strings.Contains(err.Error(), "already used") {
+			t.Fatalf("unexpected loser error: %v", err)
+		}
+	}
+	if failureCount != 7 {
+		t.Fatalf("failureCount = %d, want 7", failureCount)
+	}
+
+	path, err := approvalTokenPath(token)
+	if err != nil {
+		t.Fatalf("approvalTokenPath: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read token file: %v", err)
+	}
+
+	var st approvalTokenState
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("parse token file: %v", err)
+	}
+	if !st.Used {
+		t.Fatalf("expected token state to be used: %+v", st)
 	}
 }

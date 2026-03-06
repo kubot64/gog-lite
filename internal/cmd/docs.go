@@ -143,7 +143,7 @@ func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	docSvc, err := newDocsWriteService(ctx, c.Account)
+	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -245,7 +245,7 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	driveSvc, err := newDriveReadOnlyService(ctx, c.Account)
+	driveSvc, err := currentCommandDeps().newDriveReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -345,7 +345,7 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
-	docSvc, err := newDocsWriteService(ctx, c.Account)
+	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}

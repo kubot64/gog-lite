@@ -395,20 +395,21 @@ func TestDocsExportCmd_UnrestrictedFinalTargetSymlinkReplaced(t *testing.T) {
 		t.Skipf("symlink not supported on this environment: %v", err)
 	}
 
-	origFactory := newDriveReadOnlyService
-	t.Cleanup(func() { newDriveReadOnlyService = origFactory })
-	newDriveReadOnlyService = func(ctx context.Context, _ string) (*drive.Service, error) {
-		return newTestDriveService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				t.Fatalf("method = %s, want GET", r.Method)
-			}
-			if r.URL.Path != "/drive/v3/files/doc-123/export" {
-				t.Fatalf("path = %q", r.URL.Path)
-			}
-			w.Header().Set("Content-Type", "application/pdf")
-			_, _ = w.Write([]byte("pdf-data"))
-		})
-	}
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newDriveReadOnlyService = func(ctx context.Context, _ string) (*drive.Service, error) {
+			return newTestDriveService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Fatalf("method = %s, want GET", r.Method)
+				}
+				if r.URL.Path != "/drive/v3/files/doc-123/export" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/pdf")
+				_, _ = w.Write([]byte("pdf-data"))
+			})
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	cmd := &DocsExportCmd{
 		Account:   "a@example.com",
@@ -471,14 +472,15 @@ func TestDocsExportCmd_UnrestrictedParentSymlinkWritesOutsideAllowedTree(t *test
 		t.Skipf("symlink not supported on this environment: %v", err)
 	}
 
-	origFactory := newDriveReadOnlyService
-	t.Cleanup(func() { newDriveReadOnlyService = origFactory })
-	newDriveReadOnlyService = func(ctx context.Context, _ string) (*drive.Service, error) {
-		return newTestDriveService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/pdf")
-			_, _ = w.Write([]byte("pdf-data"))
-		})
-	}
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newDriveReadOnlyService = func(ctx context.Context, _ string) (*drive.Service, error) {
+			return newTestDriveService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/pdf")
+				_, _ = w.Write([]byte("pdf-data"))
+			})
+		}
+	})
+	t.Cleanup(restoreDeps)
 
 	outputPath := filepath.Join(linkDir, "export.pdf")
 	cmd := &DocsExportCmd{

@@ -257,10 +257,9 @@ var stderrBuffer bytes.Buffer
 func outputStderrSwap(t *testing.T) func() {
 	t.Helper()
 	stderrBuffer.Reset()
-	orig := output.Stderr
-	output.Stderr = &stderrBuffer
+	restore := output.SetStderrForTest(&stderrBuffer)
 
 	return func() {
-		output.Stderr = orig
+		restore()
 	}
 }

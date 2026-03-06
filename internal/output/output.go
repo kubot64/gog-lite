@@ -7,9 +7,14 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
-var Stderr io.Writer = os.Stderr
+var (
+	stderrMu         sync.RWMutex
+	stderrOverrideMu sync.Mutex
+	stderrWriter     io.Writer = os.Stderr
+)
 
 const (
 	ExitCodeOK         = 0
@@ -75,13 +80,37 @@ func WriteError(code int, codeStr, msg string) error {
 		MissingFlags:  inferMissingFlags(codeStr),
 		MissingTokens: inferMissingTokens(codeStr),
 	}
-	enc := json.NewEncoder(Stderr)
+	enc := json.NewEncoder(currentStderr())
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 
 	_ = enc.Encode(payload)
 
 	return &ExitCodeErr{Code: code, Err: fmt.Errorf("%s", msg)}
+}
+
+func currentStderr() io.Writer {
+	stderrMu.RLock()
+	defer stderrMu.RUnlock()
+
+	return stderrWriter
+}
+
+// SetStderrForTest swaps stderr output for the duration of a test override.
+// The returned restore function must be called to release the override lock.
+func SetStderrForTest(w io.Writer) func() {
+	stderrOverrideMu.Lock()
+	stderrMu.Lock()
+	prev := stderrWriter
+	stderrWriter = w
+	stderrMu.Unlock()
+
+	return func() {
+		stderrMu.Lock()
+		stderrWriter = prev
+		stderrMu.Unlock()
+		stderrOverrideMu.Unlock()
+	}
 }
 
 // Errorf writes a JSON error to stderr and returns an ExitCodeErr.
