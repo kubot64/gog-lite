@@ -246,7 +246,7 @@ func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
 		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
 	}
-	if payload["ok"] != true || payload["resource_type"] != "message" || payload["id"] != "msg-123" {
+	if payload["ok"] != true || payload["resource_type"] != "message" || payload["id"] != "msg-123" || payload["account"] != "you@gmail.com" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 	if _, ok := payload["dry_run"]; ok {
@@ -360,7 +360,7 @@ func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
 		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
 	}
-	if payload["ok"] != true || payload["resource_type"] != "event" || payload["id"] != "event-123" {
+	if payload["ok"] != true || payload["resource_type"] != "event" || payload["id"] != "event-123" || payload["account"] != "you@gmail.com" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 	if _, ok := payload["dry_run"]; ok {

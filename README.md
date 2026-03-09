@@ -153,6 +153,8 @@ gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
 gog-lite auth emergency-revoke --account EMAIL
 ```
 
+`auth approval-token` はデフォルトで stdout にフルトークンを出さず、`token_file` と `token_redacted` を返します。既存のフルトークン出力が必要な場合だけ `--reveal-token` を付けます。
+
 ### Gmail
 
 ```bash
@@ -194,7 +196,7 @@ gog-lite calendar create --account you@gmail.com \
 
 # イベントの更新・削除
 gog-lite calendar update --account you@gmail.com --event-id EVENT_ID --title "新しいタイトル"
-gog-lite calendar delete --account you@gmail.com --event-id EVENT_ID --confirm-delete --approval-token TOKEN
+gog-lite calendar delete --account you@gmail.com --event-id EVENT_ID --confirm-delete --approval-token-file /path/to/token-file
 ```
 
 > 時刻は RFC3339 形式でタイムゾーン必須：`2026-03-01T10:00:00Z` または `2026-03-01T10:00:00+09:00`
@@ -210,13 +212,13 @@ gog-lite docs cat  --account you@gmail.com --doc-id DOC_ID
 gog-lite docs create --account you@gmail.com --title "新しいドキュメント"
 
 # 内容の書き込み（--replace で全置換）
-gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token TOKEN
+gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token-file /path/to/token-file
 
 # エクスポート
 gog-lite docs export --account you@gmail.com --doc-id DOC_ID --format pdf --output ~/Downloads/doc.pdf --overwrite
 
 # テキスト置換
-gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token TOKEN
+gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token-file /path/to/token-file
 ```
 
 ### Google Sheets

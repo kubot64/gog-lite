@@ -154,8 +154,10 @@ func TestSlidesWriteCmd_DryRun(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	var payload struct {
-		DryRun bool   `json:"dry_run"`
-		Action string `json:"action"`
+		DryRun                bool   `json:"dry_run"`
+		Action                string `json:"action"`
+		RequiresConfirmation  bool   `json:"requires_confirmation"`
+		RequiresApprovalToken bool   `json:"requires_approval_token"`
 	}
 	if err2 := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err2 != nil {
 		t.Fatalf("parse stdout JSON: %v (got %q)", err2, stdout)
@@ -165,6 +167,9 @@ func TestSlidesWriteCmd_DryRun(t *testing.T) {
 	}
 	if payload.Action != "slides.write" {
 		t.Errorf("action = %q, want %q", payload.Action, "slides.write")
+	}
+	if !payload.RequiresConfirmation || !payload.RequiresApprovalToken {
+		t.Fatalf("unexpected dry-run metadata: %+v", payload)
 	}
 }
 

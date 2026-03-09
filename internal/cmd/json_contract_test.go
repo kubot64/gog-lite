@@ -30,7 +30,7 @@ func TestAuthApprovalTokenDryRun_JSONContract(t *testing.T) {
 	})
 
 	payload := decodeJSONObject(t, stdout)
-	assertJSONKeys(t, payload, "action", "account", "dry_run", "ok", "params", "resource_type")
+	assertJSONKeys(t, payload, "action", "account", "dry_run", "ok", "params", "requires_approval_token", "requires_confirmation", "resource_type", "validation_passed", "would_call_api")
 
 	params, ok := payload["params"].(map[string]any)
 	if !ok {
@@ -67,7 +67,38 @@ func TestGmailGet_JSONContract(t *testing.T) {
 	})
 
 	payload := decodeJSONObject(t, stdout)
-	assertJSONKeys(t, payload, "id", "labelIds", "ok", "resource_type", "target", "threadId")
+	assertJSONKeys(t, payload, "account", "id", "labelIds", "ok", "resource_type", "target", "threadId")
+}
+
+func TestGmailThread_JSONContract(t *testing.T) {
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
+			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": "thread-123",
+					"messages": []map[string]any{
+						{"id": "msg-123"},
+					},
+				})
+			})
+		}
+	})
+	t.Cleanup(restoreDeps)
+
+	cmd := &GmailThreadCmd{
+		Account:  "you@gmail.com",
+		ThreadID: "thread-123",
+	}
+
+	stdout := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	})
+
+	payload := decodeJSONObject(t, stdout)
+	assertJSONKeys(t, payload, "account", "id", "messages", "ok", "resource_type", "target")
 }
 
 func TestGmailSend_JSONContract(t *testing.T) {

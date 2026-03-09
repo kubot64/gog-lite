@@ -17,13 +17,21 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 
 	outputDir := t.TempDir()
+	resolvedOutputDir, err := filepath.EvalSymlinks(outputDir)
+	if err == nil {
+		outputDir = resolvedOutputDir
+	}
 
 	testedCommands := map[string]struct{}{}
 	for _, tt := range []struct {
-		name   string
-		key    string
-		run    func() (string, error)
-		action string
+		name                     string
+		key                      string
+		run                      func() (string, error)
+		action                   string
+		requiresConfirmation     bool
+		requiresApprovalToken    bool
+		wouldCallAPI             bool
+		validationPassedExpected bool
 	}{
 		{
 			name: "calendar create",
@@ -43,7 +51,9 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 
 				return stdout, err
 			},
-			action: "calendar.create",
+			action:                   "calendar.create",
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
 		},
 		{
 			name: "docs create",
@@ -62,16 +72,20 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 
 				return stdout, err
 			},
-			action: "docs.create",
+			action:                   "docs.create",
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
 		},
 		{
 			name: "docs write",
 			key:  "docs write",
 			run: func() (string, error) {
 				cmd := &DocsWriteCmd{
-					Account: "a@example.com",
-					DocID:   "doc-123",
-					Content: "updated",
+					Account:        "a@example.com",
+					DocID:          "doc-123",
+					Content:        "updated",
+					Replace:        true,
+					ConfirmReplace: true,
 				}
 
 				var err error
@@ -81,7 +95,11 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 
 				return stdout, err
 			},
-			action: "docs.write",
+			action:                   "docs.write",
+			requiresConfirmation:     true,
+			requiresApprovalToken:    true,
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
 		},
 		{
 			name: "docs export",
@@ -97,14 +115,16 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 				var err error
 				stdout := captureStdout(t, func() {
 					err = cmd.Run(context.Background(), &RootFlags{
-						DryRun:          true,
+						DryRun:           true,
 						AllowedOutputDir: outputDir,
 					})
 				})
 
 				return stdout, err
 			},
-			action: "docs.export",
+			action:                   "docs.export",
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
 		},
 		{
 			name: "sheets update",
@@ -124,7 +144,9 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 
 				return stdout, err
 			},
-			action: "sheets.update",
+			action:                   "sheets.update",
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
 		},
 		{
 			name: "slides write",
@@ -144,7 +166,11 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 
 				return stdout, err
 			},
-			action: "slides.write",
+			action:                   "slides.write",
+			requiresConfirmation:     true,
+			requiresApprovalToken:    true,
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
 		},
 	} {
 		tt := tt
@@ -155,9 +181,13 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 			}
 
 			var payload struct {
-				DryRun bool           `json:"dry_run"`
-				Action string         `json:"action"`
-				Params map[string]any `json:"params"`
+				DryRun                bool           `json:"dry_run"`
+				Action                string         `json:"action"`
+				Params                map[string]any `json:"params"`
+				RequiresConfirmation  bool           `json:"requires_confirmation"`
+				RequiresApprovalToken bool           `json:"requires_approval_token"`
+				WouldCallAPI          bool           `json:"would_call_api"`
+				ValidationPassed      bool           `json:"validation_passed"`
 			}
 			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
 				t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
@@ -170,6 +200,18 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 			}
 			if len(payload.Params) == 0 {
 				t.Fatalf("expected params in dry-run payload for %s", tt.key)
+			}
+			if payload.RequiresConfirmation != tt.requiresConfirmation {
+				t.Fatalf("requires_confirmation = %v, want %v", payload.RequiresConfirmation, tt.requiresConfirmation)
+			}
+			if payload.RequiresApprovalToken != tt.requiresApprovalToken {
+				t.Fatalf("requires_approval_token = %v, want %v", payload.RequiresApprovalToken, tt.requiresApprovalToken)
+			}
+			if payload.WouldCallAPI != tt.wouldCallAPI {
+				t.Fatalf("would_call_api = %v, want %v", payload.WouldCallAPI, tt.wouldCallAPI)
+			}
+			if payload.ValidationPassed != tt.validationPassedExpected {
+				t.Fatalf("validation_passed = %v, want %v", payload.ValidationPassed, tt.validationPassedExpected)
 			}
 
 			testedCommands[tt.key] = struct{}{}

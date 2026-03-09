@@ -114,8 +114,60 @@ func TestApprovalTokenCmd_Valid(t *testing.T) {
 		Action:  "calendar.delete",
 		TTL:     "10m",
 	}
-	if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
+	var err error
+	var stdout string
+	stdout = captureStdout(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if payload["issued"] != true || payload["token_redacted"] == "" || payload["token_file"] == "" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if _, ok := payload["token"]; ok {
+		t.Fatalf("did not expect full token in default payload: %+v", payload)
+	}
+}
+
+func TestApprovalTokenCmd_RevealToken(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("GOG_LITE_CLIENT_ID", "dummy-id")
+	t.Setenv("GOG_LITE_CLIENT_SECRET", "dummy-secret")
+
+	cmd := &AuthApprovalTokenCmd{
+		Account:     "a@example.com",
+		Action:      "calendar.delete",
+		TTL:         "10m",
+		RevealToken: true,
+	}
+
+	var stdout string
+	var err error
+	stdout = captureStdout(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	token, ok := payload["token"].(string)
+	if !ok || token == "" {
+		t.Fatalf("expected token in payload: %+v", payload)
+	}
+	if payload["token_redacted"] == token {
+		t.Fatalf("expected redacted token to differ from full token: %+v", payload)
 	}
 }
 
@@ -206,8 +258,10 @@ func TestApprovalTokenCmd_DryRun(t *testing.T) {
 	}
 
 	var payload struct {
-		DryRun bool   `json:"dry_run"`
-		Action string `json:"action"`
+		DryRun                bool   `json:"dry_run"`
+		Action                string `json:"action"`
+		RequiresApprovalToken bool   `json:"requires_approval_token"`
+		WouldCallAPI          bool   `json:"would_call_api"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
 		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
@@ -217,6 +271,12 @@ func TestApprovalTokenCmd_DryRun(t *testing.T) {
 	}
 	if payload.Action != "auth.approval_token" {
 		t.Fatalf("action = %q, want %q", payload.Action, "auth.approval_token")
+	}
+	if payload.RequiresApprovalToken {
+		t.Fatal("auth approval-token dry-run should not require an approval token")
+	}
+	if payload.WouldCallAPI {
+		t.Fatal("auth approval-token dry-run should not report would_call_api")
 	}
 }
 

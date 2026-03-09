@@ -143,7 +143,7 @@ gog-lite auth login  --account EMAIL [--services gmail,calendar,docs] [--auth-ur
 gog-lite auth list
 gog-lite auth remove --account EMAIL
 gog-lite auth preflight --account EMAIL [--require-actions gmail.draft,calendar.create]
-gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
+gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m] [--reveal-token]
 gog-lite auth emergency-revoke --account EMAIL
 gog-lite --version
 gog-lite --help
@@ -152,6 +152,7 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須アクション（`require_approval_actions` またはデフォルト）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
+- `auth approval-token` はデフォルトで `token_file` と `token_redacted` を返し、フルトークンは stdout に出さない。互換目的でフルトークンが必要な場合のみ `--reveal-token` を使う。
 
 ---
 
@@ -288,7 +289,7 @@ gog-lite calendar update --account EMAIL --event-id ID \
 #### delete
 
 ```bash
-gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] --confirm-delete [--approval-token TOKEN]
+gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] --confirm-delete [--approval-token TOKEN] [--approval-token-file PATH]
 ```
 
 ```json
@@ -346,7 +347,7 @@ gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|h
 #### write
 
 ```bash
-gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace --approval-token TOKEN]
+gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace --approval-token TOKEN] [--approval-token-file PATH]
 # --replace で既存内容をすべて置換
 cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-stdin --replace
 ```
@@ -354,7 +355,7 @@ cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-s
 #### find-replace
 
 ```bash
-gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] --confirm-find-replace [--approval-token TOKEN]
+gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] --confirm-find-replace [--approval-token TOKEN] [--approval-token-file PATH]
 ```
 
 ```json
@@ -498,7 +499,7 @@ page-id 指定時の出力：
 
 ```bash
 gog-lite slides write --account EMAIL --presentation-id PRESENTATION_ID \
-  --find "{{NAME}}" --replace "Alice" --confirm-write [--approval-token TOKEN]
+  --find "{{NAME}}" --replace "Alice" --confirm-write [--approval-token TOKEN] [--approval-token-file PATH]
 
 # dry-run で確認
 gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_ID \

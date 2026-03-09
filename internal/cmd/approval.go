@@ -21,6 +21,15 @@ type approvalTokenState struct {
 	Used      bool   `json:"used"`
 }
 
+func redactApprovalToken(token string) string {
+	token = strings.TrimSpace(token)
+	if len(token) <= 8 {
+		return strings.Repeat("*", len(token))
+	}
+
+	return token[:4] + "..." + token[len(token)-4:]
+}
+
 func issueApprovalToken(account, action string, ttl time.Duration) (string, string, error) {
 	if ttl <= 0 {
 		return "", "", fmt.Errorf("ttl must be positive")
@@ -124,6 +133,31 @@ func consumeApprovalToken(account, action, token string) error {
 	})
 }
 
+func resolveApprovalTokenInput(token, tokenFile string) (string, error) {
+	token = strings.TrimSpace(token)
+	tokenFile = strings.TrimSpace(tokenFile)
+
+	switch {
+	case token != "" && tokenFile != "":
+		return "", fmt.Errorf("approval token and approval token file are mutually exclusive")
+	case tokenFile != "":
+		b, err := os.ReadFile(tokenFile) //nolint:gosec
+		if err != nil {
+			return "", fmt.Errorf("read approval token file: %w", err)
+		}
+
+		token = strings.TrimSpace(string(b))
+	case token == "":
+		return "", fmt.Errorf("approval token is required")
+	}
+
+	if err := validateApprovalToken(token); err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
 func approvalTokenPath(token string) (string, error) {
 	token = strings.TrimSpace(token)
 	if err := validateApprovalToken(token); err != nil {
@@ -153,6 +187,58 @@ func approvalTokenPath(token string) (string, error) {
 	}
 
 	return candidateAbs, nil
+}
+
+func approvalTokenIssuedDir() (string, error) {
+	dir, err := config.EnsureDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve config dir: %w", err)
+	}
+
+	issuedDir := filepath.Join(dir, "approvals", "issued")
+	if err := os.MkdirAll(issuedDir, 0o700); err != nil {
+		return "", fmt.Errorf("ensure issued approvals dir: %w", err)
+	}
+
+	return issuedDir, nil
+}
+
+func writeIssuedApprovalTokenFile(token string) (string, error) {
+	dir, err := approvalTokenIssuedDir()
+	if err != nil {
+		return "", err
+	}
+
+	tmp, err := os.CreateTemp(dir, "token-*")
+	if err != nil {
+		return "", fmt.Errorf("create issued approval token file: %w", err)
+	}
+
+	path := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(path)
+		}
+	}()
+
+	if _, err := tmp.WriteString(token + "\n"); err != nil {
+		return "", fmt.Errorf("write issued approval token file: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return "", fmt.Errorf("chmod issued approval token file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", fmt.Errorf("sync issued approval token file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close issued approval token file: %w", err)
+	}
+
+	cleanup = false
+
+	return path, nil
 }
 
 func randomToken() (string, error) {

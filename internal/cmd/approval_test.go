@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -173,5 +174,31 @@ func TestConsumeApprovalToken_ConcurrentSingleSuccess(t *testing.T) {
 	}
 	if !st.Used {
 		t.Fatalf("expected token state to be used: %+v", st)
+	}
+}
+
+func TestResolveApprovalTokenInput_FromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.txt")
+	if err := os.WriteFile(path, []byte("token-123\n"), 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
+
+	token, err := resolveApprovalTokenInput("", path)
+	if err != nil {
+		t.Fatalf("resolveApprovalTokenInput: %v", err)
+	}
+	if token != "token-123" {
+		t.Fatalf("token = %q", token)
+	}
+}
+
+func TestResolveApprovalTokenInput_RejectsBothInputs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.txt")
+	if err := os.WriteFile(path, []byte("token-123\n"), 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
+
+	if _, err := resolveApprovalTokenInput("token-123", path); err == nil {
+		t.Fatal("expected mutually exclusive inputs to fail")
 	}
 }

@@ -251,9 +251,10 @@ func (c *AuthPreflightCmd) Run(_ context.Context, _ *RootFlags) error {
 }
 
 type AuthApprovalTokenCmd struct {
-	Account string `name:"account" required:"" short:"a" help:"Google account email."`
-	Action  string `name:"action" required:"" help:"Action ID (e.g. docs.write.replace)."`
-	TTL     string `name:"ttl" default:"10m" help:"Token TTL duration (e.g. 5m, 15m, 1h)."`
+	Account     string `name:"account" required:"" short:"a" help:"Google account email."`
+	Action      string `name:"action" required:"" help:"Action ID (e.g. docs.write.replace)."`
+	TTL         string `name:"ttl" default:"10m" help:"Token TTL duration (e.g. 5m, 15m, 1h)."`
+	RevealToken bool   `name:"reveal-token" help:"Include the full approval token in stdout JSON (less safe)."`
 }
 
 func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
@@ -294,18 +295,18 @@ func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
 
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "auth.approval_token",
-			"params": map[string]any{
-				"account": account,
-				"action":  action,
-				"ttl":     c.TTL,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("auth.approval_token", map[string]any{
+			"account": account,
+			"action":  action,
+			"ttl":     c.TTL,
+		}, dryRunPayloadOptions{WouldCallAPI: false}))
 	}
 
 	token, expiresAt, err := issueApprovalToken(account, action, ttl)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "approval_token_error", err.Error())
+	}
+	tokenFile, err := writeIssuedApprovalTokenFile(token)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "approval_token_error", err.Error())
 	}
@@ -318,13 +319,19 @@ func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
-	return output.WriteJSON(os.Stdout, map[string]any{
-		"issued":     true,
-		"account":    account,
-		"action":     action,
-		"token":      token,
-		"expires_at": expiresAt,
-	})
+	payload := map[string]any{
+		"issued":         true,
+		"account":        account,
+		"action":         action,
+		"token_redacted": redactApprovalToken(token),
+		"token_file":     tokenFile,
+		"expires_at":     expiresAt,
+	}
+	if c.RevealToken {
+		payload["token"] = token
+	}
+
+	return output.WriteJSON(os.Stdout, payload)
 }
 
 type AuthEmergencyRevokeCmd struct {

@@ -162,6 +162,28 @@ func TestWriteJSON_InfersActionAccountAndTarget(t *testing.T) {
 	}
 }
 
+func TestWriteJSONWithExtras_AddsMetadataWithoutReplacingPayloadFields(t *testing.T) {
+	type messagePayload struct {
+		ID string `json:"id"`
+	}
+
+	var buf bytes.Buffer
+	if err := output.WriteJSONWithExtras(&buf, messagePayload{ID: "msg-123"}, map[string]any{
+		"account": "you@example.com",
+		"id":      "ignored",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("parse JSON: %v", err)
+	}
+	if payload["id"] != "msg-123" || payload["account"] != "you@example.com" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
 func TestExitCode_Nil(t *testing.T) {
 	if code := output.ExitCode(nil); code != output.ExitCodeOK {
 		t.Errorf("want %d, got %d", output.ExitCodeOK, code)

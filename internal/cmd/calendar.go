@@ -195,7 +195,9 @@ func (c *CalendarGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return writeGoogleAPIError("get_error", err)
 	}
 
-	return output.WriteJSON(os.Stdout, event)
+	return output.WriteJSONWithExtras(os.Stdout, event, map[string]any{
+		"account": normalizeEmail(c.Account),
+	})
 }
 
 // CalendarCreateCmd creates a calendar event.
@@ -233,19 +235,15 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "calendar.create",
-			"params": map[string]any{
-				"account":     c.Account,
-				"calendar_id": c.CalendarID,
-				"title":       c.Title,
-				"start":       c.Start,
-				"end":         c.End,
-				"description": c.Description,
-				"location":    c.Location,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("calendar.create", map[string]any{
+			"account":     c.Account,
+			"calendar_id": c.CalendarID,
+			"title":       c.Title,
+			"start":       c.Start,
+			"end":         c.End,
+			"description": c.Description,
+			"location":    c.Location,
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	svc, err := currentCommandDeps().newCalendarWriteService(ctx, c.Account)
@@ -324,20 +322,16 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "calendar.update",
-			"params": map[string]any{
-				"account":     c.Account,
-				"event_id":    c.EventID,
-				"calendar_id": c.CalendarID,
-				"title":       c.Title,
-				"start":       c.Start,
-				"end":         c.End,
-				"description": c.Description,
-				"location":    c.Location,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("calendar.update", map[string]any{
+			"account":     c.Account,
+			"event_id":    c.EventID,
+			"calendar_id": c.CalendarID,
+			"title":       c.Title,
+			"start":       c.Start,
+			"end":         c.End,
+			"description": c.Description,
+			"location":    c.Location,
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
@@ -395,11 +389,12 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 
 // CalendarDeleteCmd deletes a calendar event.
 type CalendarDeleteCmd struct {
-	Account       string `name:"account" required:"" short:"a" help:"Google account email."`
-	EventID       string `name:"event-id" required:"" help:"Calendar event ID."`
-	CalendarID    string `name:"calendar-id" default:"primary" help:"Calendar ID."`
-	ConfirmDelete bool   `name:"confirm-delete" help:"Required confirmation flag for delete operations."`
-	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	Account           string `name:"account" required:"" short:"a" help:"Google account email."`
+	EventID           string `name:"event-id" required:"" help:"Calendar event ID."`
+	CalendarID        string `name:"calendar-id" default:"primary" help:"Calendar ID."`
+	ConfirmDelete     bool   `name:"confirm-delete" help:"Required confirmation flag for delete operations."`
+	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalTokenFile string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
 func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -418,13 +413,21 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
 		}
 		if required {
-			if err := consumeApprovalToken(c.Account, "calendar.delete", c.ApprovalToken); err != nil {
+			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+			if err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+			if err := consumeApprovalToken(c.Account, "calendar.delete", token); err != nil {
 				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
 			}
 		}
 	}
 
 	if dryRun {
+		required, err := actionRequiresApproval("calendar.delete")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "calendar.delete",
 			Account: normalizeEmail(c.Account),
@@ -433,15 +436,15 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "calendar.delete",
-			"params": map[string]any{
-				"account":     c.Account,
-				"event_id":    c.EventID,
-				"calendar_id": c.CalendarID,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("calendar.delete", map[string]any{
+			"account":     c.Account,
+			"event_id":    c.EventID,
+			"calendar_id": c.CalendarID,
+		}, dryRunPayloadOptions{
+			RequiresConfirmation:  true,
+			RequiresApprovalToken: required,
+			WouldCallAPI:          true,
+		}))
 	}
 
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)

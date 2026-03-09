@@ -239,7 +239,7 @@ func TestEnsureWithinAllowedOutputDir_RejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestWriteFileAtomically_FinalTargetSymlinkReplaced(t *testing.T) {
+func TestWriteFileAtomically_RejectsFinalTargetSymlink(t *testing.T) {
 	base := t.TempDir()
 	outside := t.TempDir()
 	target := filepath.Join(outside, "outside.txt")
@@ -252,24 +252,16 @@ func TestWriteFileAtomically_FinalTargetSymlinkReplaced(t *testing.T) {
 		t.Skipf("symlink not supported on this environment: %v", err)
 	}
 
-	if _, err := writeFileAtomically(outputPath, bytes.NewBufferString("new-value"), true); err != nil {
-		t.Fatalf("writeFileAtomically: %v", err)
+	if _, err := writeFileAtomically(outputPath, bytes.NewBufferString("new-value"), true); err == nil {
+		t.Fatal("expected symlinked output path to be rejected")
 	}
 
 	info, err := os.Lstat(outputPath)
 	if err != nil {
 		t.Fatalf("lstat output: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("expected final target symlink to be replaced by a regular file")
-	}
-
-	got, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("read output: %v", err)
-	}
-	if string(got) != "new-value" {
-		t.Fatalf("output = %q", string(got))
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlinked output path to remain a symlink")
 	}
 
 	outsideGot, err := os.ReadFile(target)
@@ -281,7 +273,7 @@ func TestWriteFileAtomically_FinalTargetSymlinkReplaced(t *testing.T) {
 	}
 }
 
-func TestWriteFileAtomically_ParentSymlinkEscapesWhenUnrestricted(t *testing.T) {
+func TestWriteFileAtomically_RejectsParentSymlinkWhenUnrestricted(t *testing.T) {
 	base := t.TempDir()
 	outside := t.TempDir()
 	linkDir := filepath.Join(base, "escape")
@@ -290,17 +282,13 @@ func TestWriteFileAtomically_ParentSymlinkEscapesWhenUnrestricted(t *testing.T) 
 	}
 
 	outputPath := filepath.Join(linkDir, "export.txt")
-	if _, err := writeFileAtomically(outputPath, bytes.NewBufferString("escaped"), true); err != nil {
-		t.Fatalf("writeFileAtomically: %v", err)
+	if _, err := writeFileAtomically(outputPath, bytes.NewBufferString("escaped"), true); err == nil {
+		t.Fatal("expected parent symlink to be rejected")
 	}
 
 	outsidePath := filepath.Join(outside, "export.txt")
-	got, err := os.ReadFile(outsidePath)
-	if err != nil {
-		t.Fatalf("read escaped output: %v", err)
-	}
-	if string(got) != "escaped" {
-		t.Fatalf("escaped output = %q", string(got))
+	if _, err := os.Stat(outsidePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no escaped output, got err=%v", err)
 	}
 }
 
@@ -379,7 +367,7 @@ func TestDocsExportCmd_AllowedOutputDirRejectsParentSymlinkEscape(t *testing.T) 
 	}
 }
 
-func TestDocsExportCmd_UnrestrictedFinalTargetSymlinkReplaced(t *testing.T) {
+func TestDocsExportCmd_UnrestrictedFinalTargetSymlinkRejected(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
@@ -418,37 +406,22 @@ func TestDocsExportCmd_UnrestrictedFinalTargetSymlinkReplaced(t *testing.T) {
 		Output:    outputPath,
 		Overwrite: true,
 	}
-	stdout := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
-			t.Fatalf("run: %v", err)
-		}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{})
 	})
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
 
 	var payload struct {
-		Exported bool   `json:"exported"`
-		Output   string `json:"output"`
+		Code string `json:"code"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
-		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
 	}
-	if !payload.Exported || payload.Output != outputPath {
-		t.Fatalf("unexpected payload: %+v", payload)
-	}
-
-	info, err := os.Lstat(outputPath)
-	if err != nil {
-		t.Fatalf("lstat output: %v", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("expected output symlink to be replaced by a regular file")
-	}
-
-	got, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("read output: %v", err)
-	}
-	if string(got) != "pdf-data" {
-		t.Fatalf("output = %q", string(got))
+	if payload.Code != "output_not_allowed" {
+		t.Fatalf("code = %q, want %q", payload.Code, "output_not_allowed")
 	}
 
 	outsideGot, err := os.ReadFile(target)
@@ -460,7 +433,7 @@ func TestDocsExportCmd_UnrestrictedFinalTargetSymlinkReplaced(t *testing.T) {
 	}
 }
 
-func TestDocsExportCmd_UnrestrictedParentSymlinkWritesOutsideAllowedTree(t *testing.T) {
+func TestDocsExportCmd_UnrestrictedParentSymlinkRejected(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
@@ -490,19 +463,27 @@ func TestDocsExportCmd_UnrestrictedParentSymlinkWritesOutsideAllowedTree(t *test
 		Output:    outputPath,
 		Overwrite: true,
 	}
-	captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
-			t.Fatalf("run: %v", err)
-		}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{})
 	})
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "output_not_allowed" {
+		t.Fatalf("code = %q, want %q", payload.Code, "output_not_allowed")
+	}
 
 	outsidePath := filepath.Join(outside, "export.pdf")
-	got, err := os.ReadFile(outsidePath)
-	if err != nil {
-		t.Fatalf("read escaped output: %v", err)
-	}
-	if string(got) != "pdf-data" {
-		t.Fatalf("escaped output = %q", string(got))
+	if _, err := os.Stat(outsidePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no escaped output, got err=%v", err)
 	}
 }
 

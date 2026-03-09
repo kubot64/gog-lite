@@ -105,7 +105,9 @@ func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return writeGoogleAPIError("get_error", err)
 	}
 
-	return output.WriteJSON(os.Stdout, msg)
+	return output.WriteJSONWithExtras(os.Stdout, msg, map[string]any{
+		"account": normalizeEmail(c.Account),
+	})
 }
 
 // GmailSendCmd sends an email.
@@ -258,7 +260,9 @@ func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return writeGoogleAPIError("thread_error", err)
 	}
 
-	return output.WriteJSON(os.Stdout, thread)
+	return output.WriteJSONWithExtras(os.Stdout, thread, map[string]any{
+		"account": normalizeEmail(c.Account),
+	})
 }
 
 // GmailLabelsCmd lists Gmail labels.

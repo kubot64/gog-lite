@@ -119,7 +119,22 @@ func Errorf(code int, codeStr, format string, args ...any) error {
 }
 
 func WriteJSON(w io.Writer, val any) error {
+	return writeJSON(w, val, nil)
+}
+
+func WriteJSONWithExtras(w io.Writer, val any, extras map[string]any) error {
+	return writeJSON(w, val, extras)
+}
+
+func writeJSON(w io.Writer, val any, extras map[string]any) error {
 	if payload, ok, err := normalizeJSONObject(val); err == nil && ok {
+		if len(extras) != 0 {
+			for k, v := range extras {
+				if _, exists := payload[k]; !exists {
+					payload[k] = v
+				}
+			}
+		}
 		val = augmentSuccessPayload(payload)
 	}
 
