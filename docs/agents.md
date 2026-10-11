@@ -34,7 +34,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `--audit-log` と `--allowed-output-dir` は安全制御として扱う
 - 監査ログの新規行は `hash_alg` が `hmac-sha256`。`hash_alg` の無い既存行は SHA-256 のまま読む
 - 監査ログの追記には keyring が必要。失敗時の code は `audit_error`（終了コード 1）
-- ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` のときと、Linux で `DBUS_SESSION_BUS_ADDRESS` が無いときの自動選択のどちらも同じ。未設定・空・空白のみは `keyring_error`（終了コード 1）。パスワードはプロンプトしない
+- ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` のときと、Linux でセッションバスが無いときの自動選択のどちらも同じ。未設定・空・空白のみは `keyring_error`（終了コード 1）。パスワードはプロンプトしない。セッションバスは `DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う
 - `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。通信失敗・5xx・トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
 
 ## Safety Controls
@@ -717,7 +717,7 @@ generate_text | gog-lite docs write \
 |------|------|
 | `GOG_LITE_CLIENT_ID` | OAuth クライアント ID（credentials.json より優先） |
 | `GOG_LITE_CLIENT_SECRET` | OAuth クライアントシークレット（credentials.json より優先） |
-| `GOG_LITE_KEYRING_BACKEND` | `keychain`（macOS）/ `file`（ヘッドレス）。未設定かつ Linux で D-Bus が無いときも `file` |
+| `GOG_LITE_KEYRING_BACKEND` | `keychain`（macOS）/ `file`（ヘッドレス）。未設定かつ Linux でセッションバスが無いときも `file` |
 | `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード。空や空白だけは不可 |
 
 ヘッドレス環境（Docker/CI）での完全な設定：
@@ -734,7 +734,7 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 3. `credentials.json`
 
 片方のみ設定されている場合は次の経路へフォールバックする。
-ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` を指定したときと、Linux で `DBUS_SESSION_BUS_ADDRESS` が無くファイルバックエンドへ自動で切り替わるときの両方。未設定、空文字、空白だけは `keyring_error`（終了コード 1）。端末へのパスワード入力は行わない。
+ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` を指定したときと、Linux でセッションバスが無くファイルバックエンドへ自動で切り替わるときの両方。未設定、空文字、空白だけは `keyring_error`（終了コード 1）。端末へのパスワード入力は行わない。セッションバスは、`DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う。
 
 ---
 

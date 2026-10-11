@@ -591,6 +591,32 @@ jobs:
           unset GOG_LITE_KEYRING_BACKEND
           unset GOG_LITE_KEYRING_PASSWORD
           unset DBUS_SESSION_BUS_ADDRESS
+          # keyring's init discovers /run/user/<uid>/bus or runs dbus-launch and
+          # puts the address back into the environment. Hide both so this step
+          # really has no session bus.
+          uid=$(id -u)
+          runtime_dir="/run/user/$uid"
+          bus_backup=$(mktemp -d)
+          restore_bus() {
+            if [ -d "$runtime_dir" ] && [ -d "$bus_backup" ]; then
+              for f in "$bus_backup"/*; do
+                [ -e "$f" ] || continue
+                mv "$f" "$runtime_dir"/
+              done
+            fi
+          }
+          trap restore_bus EXIT
+          if [ -d "$runtime_dir" ]; then
+            for name in bus dbus-session; do
+              if [ -e "$runtime_dir/$name" ]; then
+                mv "$runtime_dir/$name" "$bus_backup/$name"
+              fi
+            done
+          fi
+          fake_bin=$(mktemp -d)
+          printf '%s\n' '#!/bin/sh' 'exit 1' > "$fake_bin/dbus-launch"
+          chmod +x "$fake_bin/dbus-launch"
+          export PATH="$fake_bin:$PATH"
           out_json=$(mktemp)
           err_json=$(mktemp)
           /tmp/gog-lite auth list >"$out_json" 2>"$err_json" && code=0 || code=$?

@@ -396,16 +396,16 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 |---|---|
 | `GOG_LITE_CLIENT_ID` | OAuth クライアント ID |
 | `GOG_LITE_CLIENT_SECRET` | OAuth クライアントシークレット |
-| `GOG_LITE_KEYRING_BACKEND` | `file` でファイルバックエンドを強制。未設定かつ Linux で D-Bus が無いときもファイルバックエンド |
+| `GOG_LITE_KEYRING_BACKEND` | `file` でファイルバックエンドを強制。未設定かつ Linux でセッションバスが無いときもファイルバックエンド |
 | `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード。空や空白だけは不可 |
 
 `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の両方が設定されている場合、credentials.json は不要。
 macOS では上記2値を Keychain に保存しておけば、環境変数未設定でもフォールバックで参照できる。
-ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` を指定したときと、Linux で `DBUS_SESSION_BUS_ADDRESS` が無くファイルバックエンドへ自動で切り替わるときの両方。未設定、空文字、空白だけは拒否する。端末へのパスワード入力は行わない。
+ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` を指定したときと、Linux でセッションバスが無くファイルバックエンドへ自動で切り替わるときの両方。未設定、空文字、空白だけは拒否する。端末へのパスワード入力は行わない。セッションバスは、`DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う。
 
 ## 監査ログ
 
-書き込み系コマンドは、`--dry-run` を含めて、監査ログへ 1 行追記する。`--audit-log` を省略したときのパスは設定ディレクトリの `audit.log`。追記には keyring が必要で、失敗時の code は `audit_error`（終了コード 1）。ヘッドレスでは上の `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定する。Linux で D-Bus が無い場合もファイルバックエンドになる。`GOG_LITE_KEYRING_BACKEND` を省略しても `GOG_LITE_KEYRING_PASSWORD` は必要。
+書き込み系コマンドは、`--dry-run` を含めて、監査ログへ 1 行追記する。`--audit-log` を省略したときのパスは設定ディレクトリの `audit.log`。追記には keyring が必要で、失敗時の code は `audit_error`（終了コード 1）。ヘッドレスでは上の `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定する。Linux でセッションバスが無い場合もファイルバックエンドになる。`GOG_LITE_KEYRING_BACKEND` を省略しても `GOG_LITE_KEYRING_PASSWORD` は必要。
 
 各行は JSON で、次のフィールドを持つ。
 
