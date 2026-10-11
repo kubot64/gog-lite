@@ -372,6 +372,136 @@ jobs:
           print('sheets-update-invalid-value-input: OK')
           "
 
+      - name: docs write --replace skips confirm and approval on dry-run
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "missing confirm exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 1 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'replace_requires_confirmation', f\"got code {d['code']}\"
+          print('docs-write-replace-confirm: OK')
+          "
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace --confirm-replace >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "missing token exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('docs-write-replace-approval: OK')
+          "
+          out=$(/tmp/gog-lite --dry-run docs write --account test@example.com --doc-id x --content hello --replace)
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'docs.write', d
+          params = d.get('params') or {}
+          assert params.get('replace') is True, d
+          assert params.get('confirm_replace') is False, d
+          assert params.get('content_length') == 5, d
+          print('docs-write-replace-dry-run: OK')
+          " "$out"
+          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action docs.write.replace --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          /tmp/gog-lite --dry-run docs write --account test@example.com --doc-id x --content hello --replace \
+            --confirm-replace --approval-token "$token" >/dev/null || {
+            echo "dry-run with approval token failed"
+            exit 1
+          }
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace \
+            --confirm-replace --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "token still valid exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 2 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_required', f\"got code {d['code']}\"
+          print('docs-write-dry-run-keeps-token: OK')
+          "
+          err_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace \
+            --confirm-replace --approval-token "$token" >/dev/null 2>"$err_json" && code=0 || code=$?
+          echo "token consumed exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('docs-write-token-consumed: OK')
+          "
+          allowed=$(mktemp -d)
+          outside=$(mktemp -d)
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite --dry-run --allowed-output-dir "$allowed" docs export \
+            --account test@example.com --doc-id x --format pdf --output "$outside/out.pdf" \
+            >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "export dry-run outside exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'output_not_allowed', f\"got code {d['code']}\"
+          print('docs-export-dry-run-output-not-allowed: OK')
+          "
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite --allowed-output-dir "$allowed" docs export \
+            --account test@example.com --doc-id x --format pdf --output "$outside/out.pdf" \
+            >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "export outside exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'output_not_allowed', f\"got code {d['code']}\"
+          print('docs-export-output-not-allowed: OK')
+          "
+          out=$(/tmp/gog-lite --dry-run --allowed-output-dir "$allowed" docs export \
+            --account test@example.com --doc-id x --format pdf --output "$allowed/out.pdf")
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'docs.export', d
+          print('docs-export-dry-run-allowed: OK')
+          " "$out"
+
       - name: audit log hmac chain rejects recomputation
         run: |
           HOME=$(mktemp -d)
