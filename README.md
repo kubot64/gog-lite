@@ -22,6 +22,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs / Google Sheets / 
 - `--allowed-output-dir` — ファイル出力先ディレクトリ制限。外への `docs export` は終了コード 4（`output_not_allowed`）。`--dry-run` でも同じ
 - `--confirm-*` — 破壊的操作の明示確認
 - `--approval-token` — 高リスク操作の追加承認。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
+- ファイルロック — 承認トークンの消費、書き込みのレート制限、監査ログの追記は、ロックを持っているプロセスが終了するまで排他する。5 秒以内に取れないとき、監査ログは終了コード 1（`audit_error`）、レート制限の更新は終了コード 1（`rate_limited`）、承認トークンの消費は終了コード 4（`approval_required`）。`error` には `acquire lock` と `timeout` が入る。この失敗では承認トークンは消費しない
 
 ## 実行ポリシー（policy.json）
 
@@ -432,7 +433,7 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 | `hash_alg` | 新規行は `hmac-sha256`。それ以前の行では省略され、SHA-256 |
 | `hash` | この行のハッシュ |
 
-`hash` の材料は `timestamp|action|account|target|dry_run|prev_hash`。新規行はこの文字列の HMAC-SHA256 で、鍵は keyring の `audit-hmac-key`。同じ keyring に、ログパスごとの末尾ハッシュも残す。鍵も末尾ハッシュもログファイルには書かない。追記はファイルロックの中で読み書きする。
+`hash` の材料は `timestamp|action|account|target|dry_run|prev_hash`。新規行はこの文字列の HMAC-SHA256 で、鍵は keyring の `audit-hmac-key`。同じ keyring に、ログパスごとの末尾ハッシュも残す。鍵も末尾ハッシュもログファイルには書かない。追記はファイルロックの中で読み書きする。ロックはそのプロセスが終了するまで有効で、5 秒以内に取れないときは `audit_error`（終了コード 1）になる。
 
 `hash_alg` の無い既存行は SHA-256 のまま検証でき、新しい行はその末尾ハッシュを `prev_hash` にしてつながる。SHA-256 だけのファイルは、この版で最初に追記したときに末尾が keyring へ固定される。それより前にファイルだけを書き換えてチェーンを作り直した痕跡は、その初回追記では検知できない。初回追記のあと、末尾ハッシュがログの最後の行ともその 1 つ前とも一致しない追記は `audit_error` になる。末尾の更新が 1 行だけ遅れた状態は、追記の直後にプロセスが落ちたものとして次の追記で受け入れる。`audit-hmac-key` を消すと、既存の HMAC 行は検証できなくなる。
 
