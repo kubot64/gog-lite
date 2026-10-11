@@ -70,9 +70,8 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
-      # U1000 / S1001 are tracked in #78 and stay excluded until that cleanup lands.
       - name: Run staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 -checks 'inherit,-U1000,-S1001' ./...
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 
   # PR and push keep the merge-time gate from #68. The 02:00 UTC schedule runs the
   # same scan so a new vulnerability database entry is not waiting on the next PR.

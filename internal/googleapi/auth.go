@@ -14,7 +14,6 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/kubot64/gog-lite/internal/config"
-	"github.com/kubot64/gog-lite/internal/googleauth"
 	"github.com/kubot64/gog-lite/internal/secrets"
 )
 
@@ -34,16 +33,6 @@ func (e *AuthRequiredError) Error() string {
 
 func (e *AuthRequiredError) Unwrap() error {
 	return e.Cause
-}
-
-// optionsForEmail creates Google API client options for the given email and service.
-func optionsForEmail(ctx context.Context, service googleauth.Service, email string) ([]option.ClientOption, error) {
-	scopes, err := googleauth.Scopes(service)
-	if err != nil {
-		return nil, fmt.Errorf("resolve scopes: %w", err)
-	}
-
-	return optionsForEmailWithScopes(ctx, string(service), email, scopes)
 }
 
 func optionsForEmailWithScopes(

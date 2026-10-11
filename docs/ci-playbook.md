@@ -30,9 +30,8 @@ CI 失敗時の調査・対処手順。
 
 - 症状: `staticcheck` ジョブが非ゼロで終わる。
 - 対処:
-  - 指摘されたチェックをコード側で直す。
-  - `U1000` と `S1001` は未使用コードの削除（#78）まで `-checks 'inherit,-U1000,-S1001'` で除外している。新しい指摘をこの除外へ足さない。
-- 実行は `go run honnef.co/go/tools/cmd/staticcheck@v0.8.1`。外部アクションは使わない。
+  - 指摘されたチェックをコード側で直す。`-checks` でチェックを除外しない。
+- 実行は `go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...`。既定のチェックで、除外はない。外部アクションは使わない。
 
 ### govulncheck
 

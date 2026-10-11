@@ -52,7 +52,7 @@ AIエージェント運用向けの安全機能を CI で検証するための�
 
 - [x] `.github/workflows/ci.yml` に以下ジョブを追加
   - [x] `unit-fast` (`go test ./...` と `go vet`)
-  - [x] `staticcheck`（PR / push。`U1000` と `S1001` は除外）
+  - [x] `staticcheck`（PR / push。既定のチェックで、除外はない）
   - [x] `govulncheck`（PR / push と毎日 02:00 UTC）
   - [x] `integration-cli` (temp HOMEでCLI実行)
   - [x] `security-nightly` (schedule)
