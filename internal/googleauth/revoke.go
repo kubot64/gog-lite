@@ -2,6 +2,7 @@ package googleauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const tokenRevokeEndpointDefault = "https://oauth2.googleapis.com/revoke"
@@ -17,18 +19,30 @@ const tokenRevokeEndpointDefault = "https://oauth2.googleapis.com/revoke"
 var tokenRevokeEndpoint = tokenRevokeEndpointDefault
 
 var (
-	errEmptyRefreshToken = errors.New("refresh token is empty")
-	errRevokeRejected    = errors.New("token revoke rejected")
+	// ErrAlreadyRevoked means Google returned HTTP 400 with error=invalid_token.
+	// The refresh token is already unusable.
+	ErrAlreadyRevoked = errors.New("token already revoked")
+	// ErrRevokeUnavailable means the revoke call did not reach a definitive Google answer
+	// (transport error or HTTP 5xx). The token may still be valid.
+	ErrRevokeUnavailable = errors.New("token revoke unavailable")
+	// ErrRevokeRejected means Google refused the revoke for a reason other than invalid_token.
+	ErrRevokeRejected = errors.New("token revoke rejected")
+	// ErrEmptyRefreshToken means there is no refresh token to send.
+	ErrEmptyRefreshToken = errors.New("refresh token is empty")
 )
 
-const revokeHTTPTimeout = 30 * time.Second
+const (
+	revokeHTTPTimeout   = 30 * time.Second
+	revokeResponseLimit = 1 << 16
+)
 
 // RevokeRefreshToken asks Google to revoke refreshToken.
-// Only HTTP 200 is success. The token value is never included in errors.
+// A nil error means HTTP 200. ErrAlreadyRevoked means HTTP 400 invalid_token.
+// The token value is never included in errors.
 func RevokeRefreshToken(ctx context.Context, refreshToken string) error {
 	refreshToken = strings.TrimSpace(refreshToken)
 	if refreshToken == "" {
-		return errEmptyRefreshToken
+		return ErrEmptyRefreshToken
 	}
 
 	form := url.Values{}
@@ -49,16 +63,52 @@ func RevokeRefreshToken(ctx context.Context, refreshToken string) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("revoke request: %w", err)
+		return fmt.Errorf("%w: %v", ErrRevokeUnavailable, err)
 	}
 	defer resp.Body.Close()
 
-	// Drop the body. It is not part of the error text, so a response that echoes the token stays out of logs.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, revokeResponseLimit))
+	return classifyRevokeResponse(resp.StatusCode, body)
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: HTTP %d", errRevokeRejected, resp.StatusCode)
+func classifyRevokeResponse(status int, body []byte) error {
+	if status == http.StatusOK {
+		return nil
 	}
+	if status == http.StatusBadRequest && revokeErrorCode(body) == "invalid_token" {
+		return ErrAlreadyRevoked
+	}
+	if status >= 500 && status <= 599 {
+		return fmt.Errorf("%w: HTTP %d", ErrRevokeUnavailable, status)
+	}
+	if code := revokeErrorCode(body); code != "" {
+		return fmt.Errorf("%w: HTTP %d %s", ErrRevokeRejected, status, code)
+	}
+	return fmt.Errorf("%w: HTTP %d", ErrRevokeRejected, status)
+}
 
-	return nil
+// revokeErrorCode returns Google's error code when it is a short token-safe identifier.
+// Response bodies are not copied into errors, because they may echo the refresh token.
+func revokeErrorCode(body []byte) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	code := strings.TrimSpace(payload.Error)
+	if code == "" || len(code) > 64 || !isSafeErrorCode(code) {
+		return ""
+	}
+	return code
+}
+
+func isSafeErrorCode(code string) bool {
+	for _, r := range code {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }

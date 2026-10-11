@@ -337,6 +337,24 @@ var revokeRefreshToken = googleauth.RevokeRefreshToken
 
 func (c *AuthEmergencyRevokeCmd) Run(ctx context.Context, root *RootFlags) error {
 	account := normalizeEmail(c.Account)
+	if root.DryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "auth.emergency_revoke",
+			Account: account,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
+
+		return output.WriteJSON(os.Stdout, map[string]any{
+			"dry_run": true,
+			"action":  "auth.emergency_revoke",
+			"params": map[string]any{
+				"account": account,
+			},
+		})
+	}
+
 	store, err := secrets.OpenDefault()
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "keyring_error", err.Error())
@@ -345,35 +363,49 @@ func (c *AuthEmergencyRevokeCmd) Run(ctx context.Context, root *RootFlags) error
 	tok, err := store.GetToken(account)
 	if err != nil {
 		if errors.Is(err, keyring.ErrKeyNotFound) {
+			if err := blockAccount(account); err != nil {
+				return err
+			}
 			return output.WriteError(
 				output.ExitCodeNotFound,
 				"remote_revoke_failed",
-				"リモート失効に失敗した: 保存された refresh token がない",
+				"リモート失効に失敗した。保存された refresh token がない。ローカルではブロック済み",
 			)
 		}
 
 		return output.WriteError(output.ExitCodeError, "keyring_error", err.Error())
 	}
 
-	if err := revokeRefreshToken(ctx, tok.RefreshToken); err != nil {
+	err = revokeRefreshToken(ctx, tok.RefreshToken)
+	switch {
+	case err == nil:
+		return finishEmergencyRevoke(store, root, account, false)
+	case errors.Is(err, googleauth.ErrAlreadyRevoked):
+		return finishEmergencyRevoke(store, root, account, true)
+	case errors.Is(err, googleauth.ErrRevokeUnavailable), errors.Is(err, googleauth.ErrEmptyRefreshToken):
+		if err := blockAccount(account); err != nil {
+			return err
+		}
+		return output.WriteError(
+			output.ExitCodeError,
+			"remote_revoke_failed",
+			fmt.Sprintf("リモート失効に失敗した。ローカルではブロック済み。トークンは残っているので再実行する: %s", err.Error()),
+		)
+	default:
 		return output.WriteError(
 			output.ExitCodeError,
 			"remote_revoke_failed",
 			fmt.Sprintf("リモート失効に失敗した: %s", err.Error()),
 		)
 	}
+}
 
+func finishEmergencyRevoke(store *secrets.Store, root *RootFlags, account string, alreadyRevoked bool) error {
 	if err := store.DeleteToken(account); err != nil {
 		return output.WriteError(output.ExitCodeError, "remove_error", err.Error())
 	}
-
-	p, err := config.ReadPolicy()
-	if err != nil {
-		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-	}
-	p.BlockedAccounts = append(p.BlockedAccounts, account)
-	if err := config.WritePolicy(p); err != nil {
-		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	if err := blockAccount(account); err != nil {
+		return err
 	}
 	if err := appendAuditLog(root.AuditLog, auditEntry{
 		Action:  "auth.emergency_revoke",
@@ -384,10 +416,23 @@ func (c *AuthEmergencyRevokeCmd) Run(ctx context.Context, root *RootFlags) error
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
-		"revoked": true,
-		"blocked": true,
-		"email":   account,
+		"revoked":         true,
+		"already_revoked": alreadyRevoked,
+		"blocked":         true,
+		"email":           account,
 	})
+}
+
+func blockAccount(account string) error {
+	p, err := config.ReadPolicy()
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	p.BlockedAccounts = append(p.BlockedAccounts, account)
+	if err := config.WritePolicy(p); err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	return nil
 }
 
 // parseServices parses a comma-separated list of service names.
