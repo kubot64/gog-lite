@@ -17,7 +17,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 ## Safety Controls
 
 - `--dry-run` — 書き込み前の事前確認
-- `--audit-log` — 書き込み操作の JSONL 監査ログ
+- `--audit-log` — 書き込み操作の JSONL 監査ログ。新規行は keyring の HMAC 鍵で鎖をつなぐ
 - `--allowed-output-dir` — ファイル出力先ディレクトリ制限
 - `--confirm-*` — 破壊的操作の明示確認
 - `--approval-token` — 高リスク操作の追加承認。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
@@ -398,6 +398,27 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の両方が設定されている場合、credentials.json は不要。
 macOS では上記2値を Keychain に保存しておけば、環境変数未設定でもフォールバックで参照できる。
 `GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
+
+## 監査ログ
+
+書き込み系コマンドは、`--dry-run` を含めて、監査ログへ 1 行追記する。`--audit-log` を省略したときのパスは設定ディレクトリの `audit.log`。追記には keyring が必要で、失敗時の code は `audit_error`（終了コード 1）。ヘッドレスでは上の `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定する。
+
+各行は JSON で、次のフィールドを持つ。
+
+| フィールド | 意味 |
+|---|---|
+| `timestamp` | UTC の RFC3339 |
+| `action` | 操作名 |
+| `account` | アカウント。無いときは省略 |
+| `target` | 対象 ID。無いときは省略 |
+| `dry_run` | dry-run なら `true` |
+| `prev_hash` | 直前の行の `hash`。先頭行では省略 |
+| `hash_alg` | 新規行は `hmac-sha256`。それ以前の行では省略され、SHA-256 |
+| `hash` | この行のハッシュ |
+
+`hash` の材料は `timestamp|action|account|target|dry_run|prev_hash`。新規行はこの文字列の HMAC-SHA256 で、鍵は keyring の `audit-hmac-key`。同じ keyring に、ログパスごとの末尾ハッシュも残す。鍵も末尾ハッシュもログファイルには書かない。追記はファイルロックの中で読み書きする。
+
+`hash_alg` の無い既存行は SHA-256 のまま検証でき、新しい行はその末尾ハッシュを `prev_hash` にしてつながる。SHA-256 だけのファイルは、この版で最初に追記したときに末尾が keyring へ固定される。それより前にファイルだけを書き換えてチェーンを作り直した痕跡は、その初回追記では検知できない。初回追記のあと、末尾ハッシュがログの最後の行ともその 1 つ前とも一致しない追記は `audit_error` になる。末尾の更新が 1 行だけ遅れた状態は、追記の直後にプロセスが落ちたものとして次の追記で受け入れる。`audit-hmac-key` を消すと、既存の HMAC 行は検証できなくなる。
 
 ## 対応サービスと必要スコープ
 

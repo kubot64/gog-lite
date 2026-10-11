@@ -19,3 +19,4 @@
 - [0006: Expand Google Workspace surface with policy-aligned controls](0006-expand-google-workspace-surface-with-policy-alignment.md)
 - [0007: Separate tag/release workflows and distribute via Homebrew](0007-separate-tag-and-release-workflows-with-homebrew-distribution.md)
 - [0008: Improve CI reliability and supply-chain security checks](0008-improve-ci-reliability-and-supply-chain-security.md)
+- [0009: Seal audit logs with a keyring HMAC and a stored tail](0009-seal-audit-log-with-keyring-hmac.md)
