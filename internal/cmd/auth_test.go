@@ -414,7 +414,7 @@ func TestEmergencyRevokeCmd_UnavailableBlocksAndKeepsToken(t *testing.T) {
 	assertAccountBlocked(t, account)
 }
 
-func TestEmergencyRevokeCmd_RejectedRevokeKeepsTokenAndDoesNotBlock(t *testing.T) {
+func TestEmergencyRevokeCmd_RejectedRevokeBlocksAndKeepsToken(t *testing.T) {
 	setupFileKeyring(t)
 	account := "victim@example.com"
 	const refreshToken = "dummy-refresh"
@@ -428,7 +428,7 @@ func TestEmergencyRevokeCmd_RejectedRevokeKeepsTokenAndDoesNotBlock(t *testing.T
 		if token != refreshToken {
 			t.Errorf("token = %q, want %q", token, refreshToken)
 		}
-		return fmt.Errorf("%w: HTTP 400 invalid_request", googleauth.ErrRevokeRejected)
+		return fmt.Errorf("%w: HTTP 400 invalid_client", googleauth.ErrRevokeRejected)
 	})
 
 	cmd := &AuthEmergencyRevokeCmd{Account: account}
@@ -444,11 +444,11 @@ func TestEmergencyRevokeCmd_RejectedRevokeKeepsTokenAndDoesNotBlock(t *testing.T
 	if payload.Code != "remote_revoke_failed" {
 		t.Errorf("code = %q, want %q", payload.Code, "remote_revoke_failed")
 	}
-	if !strings.Contains(payload.Error, "リモート失効に失敗した") {
-		t.Errorf("error = %q, want remote revoke failure", payload.Error)
+	if !strings.Contains(payload.Error, "リモート失効に失敗した") || !strings.Contains(payload.Error, "ブロック済み") || !strings.Contains(payload.Error, "再実行") {
+		t.Errorf("error = %q", payload.Error)
 	}
-	if strings.Contains(payload.Error, "ブロック済み") {
-		t.Errorf("error claims a block that should not happen: %q", payload.Error)
+	if !strings.Contains(payload.Error, "invalid_client") {
+		t.Errorf("error = %q, want the Google error code", payload.Error)
 	}
 	if strings.Contains(payload.Error, refreshToken) {
 		t.Fatalf("error leaked refresh token: %q", payload.Error)
@@ -461,7 +461,51 @@ func TestEmergencyRevokeCmd_RejectedRevokeKeepsTokenAndDoesNotBlock(t *testing.T
 	if got.RefreshToken != refreshToken {
 		t.Fatalf("refresh token = %q, want %q", got.RefreshToken, refreshToken)
 	}
-	assertAccountNotBlocked(t, account)
+	assertAccountBlocked(t, account)
+}
+
+func TestEmergencyRevokeCmd_UnexpectedRevokeErrorBlocksAndKeepsToken(t *testing.T) {
+	setupFileKeyring(t)
+	account := "victim@example.com"
+	const refreshToken = "dummy-refresh"
+
+	store := openTestStore(t)
+	if err := store.SetToken(account, secrets.Token{RefreshToken: refreshToken}); err != nil {
+		t.Fatalf("SetToken: %v", err)
+	}
+
+	stubRevoke(t, func(context.Context, string) error {
+		return fmt.Errorf("unexpected revoke failure")
+	})
+
+	cmd := &AuthEmergencyRevokeCmd{Account: account}
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if output.ExitCode(err) != output.ExitCodeError {
+		t.Fatalf("exit code = %d, want %d", output.ExitCode(err), output.ExitCodeError)
+	}
+
+	payload := decodeErrorPayload(t, stderr)
+	if payload.Code != "remote_revoke_failed" {
+		t.Errorf("code = %q, want %q", payload.Code, "remote_revoke_failed")
+	}
+	if !strings.Contains(payload.Error, "リモート失効に失敗した") || !strings.Contains(payload.Error, "ブロック済み") || !strings.Contains(payload.Error, "再実行") {
+		t.Errorf("error = %q", payload.Error)
+	}
+	if strings.Contains(payload.Error, refreshToken) {
+		t.Fatalf("error leaked refresh token: %q", payload.Error)
+	}
+
+	got, err := store.GetToken(account)
+	if err != nil {
+		t.Fatalf("local token was deleted after unexpected revoke error: %v", err)
+	}
+	if got.RefreshToken != refreshToken {
+		t.Fatalf("refresh token = %q, want %q", got.RefreshToken, refreshToken)
+	}
+	assertAccountBlocked(t, account)
 }
 
 func TestEmergencyRevokeCmd_DryRunSkipsRevoke(t *testing.T) {

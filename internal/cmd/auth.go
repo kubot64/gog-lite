@@ -23,7 +23,7 @@ type AuthCmd struct {
 	Remove          AuthRemoveCmd          `cmd:"" help:"Remove a stored account token."`
 	Preflight       AuthPreflightCmd       `cmd:"" help:"Check readiness for AI-agent operations."`
 	ApprovalToken   AuthApprovalTokenCmd   `cmd:"" help:"Issue one-time approval token for dangerous actions."`
-	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token, then delete the local token and block the account."`
+	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token and block the account. Delete the local token only when revoke is confirmed."`
 }
 
 // AuthLoginCmd implements the 2-step headless OAuth flow.
@@ -382,20 +382,16 @@ func (c *AuthEmergencyRevokeCmd) Run(ctx context.Context, root *RootFlags) error
 		return finishEmergencyRevoke(store, root, account, false)
 	case errors.Is(err, googleauth.ErrAlreadyRevoked):
 		return finishEmergencyRevoke(store, root, account, true)
-	case errors.Is(err, googleauth.ErrRevokeUnavailable), errors.Is(err, googleauth.ErrEmptyRefreshToken):
-		if err := blockAccount(account); err != nil {
-			return err
+	default:
+		// Revoke was not confirmed (transport error, 5xx, or a refusal other than
+		// invalid_token). Block locally anyway and keep the refresh token for retry.
+		if blockErr := blockAccount(account); blockErr != nil {
+			return blockErr
 		}
 		return output.WriteError(
 			output.ExitCodeError,
 			"remote_revoke_failed",
 			fmt.Sprintf("リモート失効に失敗した。ローカルではブロック済み。トークンは残っているので再実行する: %s", err.Error()),
-		)
-	default:
-		return output.WriteError(
-			output.ExitCodeError,
-			"remote_revoke_failed",
-			fmt.Sprintf("リモート失効に失敗した: %s", err.Error()),
 		)
 	}
 }

@@ -37,7 +37,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - 監査ログの追記には keyring が必要。失敗時の code は `audit_error`（終了コード 1）
 - 承認トークンの消費、書き込みレート制限の更新、監査ログの追記は、対象ごとのファイルロックの中で行う。ロックは保持しているプロセスが終了するまで有効である。5 秒以内に取れないとき、監査ログは `audit_error`（終了コード 1）、レート制限の更新は `rate_limited`（終了コード 1）、承認トークンの消費は `approval_required`（終了コード 4）。`error` には `acquire lock` と `timeout` が入る。この失敗では承認トークンは消費しない
 - ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` のときと、Linux でセッションバスが無いときの自動選択のどちらも同じ。未設定・空・空白のみは `keyring_error`（終了コード 1）。パスワードはプロンプトしない。セッションバスは `DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う
-- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。通信失敗・5xx・トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
+- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。それ以外の失効失敗（通信失敗・5xx・`invalid_token` 以外の拒否）でも `blocked_accounts` へ追加し、トークンは残す。トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
 - `gmail search` と `calendar list` の `--all-pages` は `--max-pages`（既定 10、1〜50）ページで止まる。続きがあるときは `nextPageToken` を返し、終了コードは 0。範囲外の `--max-pages` は `invalid_arguments`（終了コード 1）で、レート制限は消費しない
 
 ## Safety Controls
@@ -197,7 +197,7 @@ gog-lite --help
 - HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。
 - HTTP 400 かつ本文の `error` が `invalid_token` のときは、すでに失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
 - 通信失敗または HTTP 5xx のときは終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
-- `invalid_token` 以外の拒否（HTTP 400 の別コードなど）は終了コード 1、`code` は `remote_revoke_failed`。ローカル削除もブロックもしない。トークンは残る。
+- `invalid_token` 以外の拒否（`invalid_client` など）は終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
 - 保存された refresh token が無いときは Google へ送らず、終了コード 3、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。
 - `--dry-run` は失効リクエストを送らず、ローカル削除もブロックもしない。確認用 JSON と監査ログだけを返す。終了コードは 0。
 - `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
@@ -676,7 +676,7 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 |------|-----------|------|
 | `auth_required` | 2 | トークン未保存、または Google API が HTTP 401 を返した。どちらも `auth login` が必要 |
 | `remote_revoke_failed` | 1 | 通信失敗または HTTP 5xx。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
-| `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。ローカル削除もブロックもしない |
+| `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
 | `remote_revoke_failed` | 3 | 保存された refresh token がない。Google へは送らない。`blocked_accounts` には追加する |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
