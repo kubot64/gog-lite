@@ -20,6 +20,6 @@ ADR 0003 は書き込み操作の記録先としてハッシュチェーンを�
 ## Consequences
 
 - ログファイルだけを書き換えても、keyring を持たない主体はチェーンを作り直せない。
-- 追記には keyring が必要になる。ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が要る。失敗時の code は従来どおり `audit_error`。
+- 追記には keyring が必要になる。ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が要る。Linux でセッションバスが無いときもファイルバックエンドになり、パスワードが空だと追記できない。失敗時の code は従来どおり `audit_error`。
 - この版で最初に追記するより前の、SHA-256 だけのファイルは、まだ末尾が keyring に無い。その間の作り直しは検知できない。
 - `audit-hmac-key` を消すと、既存の HMAC 行は検証できなくなる。

@@ -24,7 +24,7 @@ CI 失敗時の調査・対処手順。
 - 症状: `keyring_error`、`auth_required`、token 取得失敗。
 - 対処:
   - CI で必要な環境変数を確認（`GOG_LITE_CLIENT_ID`, `GOG_LITE_CLIENT_SECRET`）。
-  - file backend 利用時は `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定。
+  - file backend 利用時は `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定。Linux でセッションバスが無いときもファイルバックエンドになり、パスワードが空だと `keyring_error` になる。環境変数を消しても `/run/user/<uid>/bus` があるとセッションバスとして扱う。
 
 ### govulncheck
 

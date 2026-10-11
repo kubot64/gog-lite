@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/99designs/keyring"
-	"golang.org/x/term"
 
 	"github.com/kubot64/gog-lite/internal/config"
 )
@@ -24,7 +23,6 @@ const (
 var (
 	errMissingEmail           = errors.New("missing email")
 	errMissingRefreshToken    = errors.New("missing refresh token")
-	errNoTTY                  = errors.New("no TTY available for keyring file backend password prompt")
 	errKeyringTimeout         = errors.New("keyring connection timed out")
 	errMissingKeyringPassword = errors.New("GOG_LITE_KEYRING_PASSWORD must be set when using file keyring backend")
 	errInvalidSecretName      = errors.New("invalid secret name")
@@ -61,19 +59,18 @@ type Store struct {
 
 const keyringOpenTimeout = 5 * time.Second
 
+// fileKeyringPasswordFunc supplies the file-backend passphrase.
+// A blank GOG_LITE_KEYRING_PASSWORD is rejected. There is no terminal prompt,
+// so an empty value cannot be used as the encryption key.
 func fileKeyringPasswordFunc() keyring.PromptFunc {
-	password, passwordSet := os.LookupEnv(keyringPasswordEnv)
-	if passwordSet {
-		return keyring.FixedStringPrompt(password)
+	password := os.Getenv(keyringPasswordEnv)
+	if strings.TrimSpace(password) == "" {
+		return func(string) (string, error) {
+			return "", errMissingKeyringPassword
+		}
 	}
 
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		return keyring.TerminalPrompt
-	}
-
-	return func(_ string) (string, error) {
-		return "", fmt.Errorf("%w; set %s", errNoTTY, keyringPasswordEnv)
-	}
+	return keyring.FixedStringPrompt(password)
 }
 
 func openKeyring() (keyring.Keyring, error) {
@@ -90,15 +87,20 @@ func openKeyring() (keyring.Keyring, error) {
 	case "keychain":
 		backends = []keyring.BackendType{keyring.KeychainBackend}
 	case "file":
-		if err := requireFileBackendPassword(backendEnv); err != nil {
-			return nil, err
-		}
 		backends = []keyring.BackendType{keyring.FileBackend}
 	default:
 		// On Linux with no D-Bus, force file backend to avoid hangs.
 		dbusAddr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
 		if runtime.GOOS == "linux" && dbusAddr == "" {
 			backends = []keyring.BackendType{keyring.FileBackend}
+		}
+	}
+
+	// Require a non-empty password whenever the file backend is selected,
+	// including the Linux fallback above.
+	if fileBackendSelected(backends) {
+		if err := requireFileBackendPassword(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -124,8 +126,18 @@ func openKeyring() (keyring.Keyring, error) {
 	return ring, nil
 }
 
-func requireFileBackendPassword(backendEnv string) error {
-	if backendEnv == "file" && strings.TrimSpace(os.Getenv(keyringPasswordEnv)) == "" {
+func fileBackendSelected(backends []keyring.BackendType) bool {
+	for _, backend := range backends {
+		if backend == keyring.FileBackend {
+			return true
+		}
+	}
+
+	return false
+}
+
+func requireFileBackendPassword() error {
+	if strings.TrimSpace(os.Getenv(keyringPasswordEnv)) == "" {
 		return errMissingKeyringPassword
 	}
 
