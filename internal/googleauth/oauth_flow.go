@@ -24,7 +24,6 @@ import (
 )
 
 var (
-	errMissingCode         = errors.New("missing authorization code")
 	errMissingState        = errors.New("missing state in redirect URL")
 	errNoCodeInURL         = errors.New("no code found in URL")
 	errNoEmailInToken      = errors.New("no email found in userinfo")

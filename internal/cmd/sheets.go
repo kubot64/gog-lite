@@ -345,9 +345,7 @@ func toInterfaceSlice(rows [][]any) [][]interface{} {
 	result := make([][]interface{}, len(rows))
 	for i, row := range rows {
 		irow := make([]interface{}, len(row))
-		for j, v := range row {
-			irow[j] = v
-		}
+		copy(irow, row)
 		result[i] = irow
 	}
 	return result
