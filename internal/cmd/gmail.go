@@ -19,7 +19,7 @@ import (
 type GmailCmd struct {
 	Search GmailSearchCmd `cmd:"" help:"Search Gmail messages."`
 	Get    GmailGetCmd    `cmd:"" help:"Get a Gmail message by ID."`
-	Send   GmailSendCmd   `cmd:"" help:"Send an email."`
+	Send   GmailSendCmd   `cmd:"" help:"Save an email as a draft."`
 	Thread GmailThreadCmd `cmd:"" help:"Get a Gmail thread by ID."`
 	Labels GmailLabelsCmd `cmd:"" help:"List Gmail labels."`
 }
@@ -108,7 +108,7 @@ func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 	return output.WriteJSON(os.Stdout, msg)
 }
 
-// GmailSendCmd sends an email.
+// GmailSendCmd saves an email as a Gmail draft.
 type GmailSendCmd struct {
 	Account   string `name:"account" required:"" short:"a" help:"Google account email."`
 	To        string `name:"to" required:"" help:"Recipient email address."`
@@ -161,6 +161,31 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "invalid_recipient", err.Error())
 		}
 	}
+
+	if root.DryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "gmail.draft",
+			Account: normalizeEmail(c.Account),
+			Target:  c.To,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
+
+		return output.WriteJSON(os.Stdout, map[string]any{
+			"dry_run": true,
+			"action":  "gmail.draft",
+			"params": map[string]any{
+				"account":     c.Account,
+				"to":          c.To,
+				"cc":          c.CC,
+				"bcc":         c.BCC,
+				"subject":     c.Subject,
+				"body_length": len(body),
+			},
+		})
+	}
+
 	if err := enforceRateLimit("gmail.send", 20, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
