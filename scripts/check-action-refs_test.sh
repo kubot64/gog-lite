@@ -150,28 +150,74 @@ if extract_action_refs "/no/such/workflows-$$" >/dev/null 2>&1; then
   fail=1
 fi
 
-live_got="$(mktemp)"
-live_want="$(mktemp)"
-cat >"$live_want" <<'EOF'
-actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd|v6
-actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c|v6
-actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a|v7
-github/codeql-action/analyze@c10b8064de6f491fea524254123dbe5e09572f13|v4
-github/codeql-action/autobuild@c10b8064de6f491fea524254123dbe5e09572f13|v4
-github/codeql-action/init@c10b8064de6f491fea524254123dbe5e09572f13|v4
-goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29|v7
-peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1|v8.1.1
-rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca|v1.7.12
+# count_unique_uses lists unique uses pins with grep and sed.
+# It does not call extract_action_refs. Duplicates collapse, and local
+# actions and docker:// pins stay in the count, matching extraction.
+count_unique_uses() {
+  local dir="$1"
+  local files=()
+  local f
+  for f in "$dir"/*.yml "$dir"/*.yaml; do
+    if [ -f "$f" ]; then
+      files+=("$f")
+    fi
+  done
+  if [ "${#files[@]}" -eq 0 ]; then
+    echo "no workflow files in ${dir}" >&2
+    return 1
+  fi
+  grep -h -E 'uses:[[:space:]]*[^[:space:]]+' "${files[@]}" \
+    | sed -E 's/\r$//; s/^.*uses:[[:space:]]*([^[:space:]]+)([[:space:]]+#[[:space:]]*([^[:space:]]+))?.*$/\1|\3/' \
+    | LC_ALL=C sort -u
+}
+
+line_count() {
+  wc -l <"$1" | tr -d ' '
+}
+
+expect_counts_match() {
+  local name="$1" dir="$2" extracted_file counted_file extracted_n counted_n
+  extracted_file="$(mktemp)"
+  counted_file="$(mktemp)"
+  if ! extract_action_refs "$dir" >"$extracted_file"; then
+    echo "FAIL ${name} extract exited non-zero"
+    fail=1
+  elif ! count_unique_uses "$dir" >"$counted_file"; then
+    echo "FAIL ${name} uses count exited non-zero"
+    fail=1
+  else
+    extracted_n="$(line_count "$extracted_file")"
+    counted_n="$(line_count "$counted_file")"
+    if [ "$extracted_n" -lt 1 ]; then
+      echo "FAIL ${name} extracted ${extracted_n} refs"
+      fail=1
+    fi
+    if [ "$extracted_n" != "$counted_n" ]; then
+      echo "FAIL ${name} extract=${extracted_n} uses=${counted_n}"
+      diff -u "$counted_file" "$extracted_file" || true
+      fail=1
+    fi
+  fi
+  rm -f "$extracted_file" "$counted_file"
+}
+
+align_dir="$(mktemp -d)"
+cat >"$align_dir/ci.yml" <<EOF
+uses: actions/checkout@${sha40} # v6
+uses: actions/checkout@${sha40} # v6
+uses: ./.github/actions/local
+uses: docker://alpine:3.20
 EOF
-if ! extract_action_refs "$root/.github/workflows" >"$live_got"; then
-  echo "FAIL live workflow extract exited non-zero"
-  fail=1
-elif ! cmp -s "$live_want" "$live_got"; then
-  echo "FAIL live workflow extract mismatch"
-  diff -u "$live_want" "$live_got" || true
+align_raw="$(grep -h -E 'uses:[[:space:]]*[^[:space:]]+' "$align_dir"/*.yml | wc -l | tr -d ' ')"
+align_unique="$(count_unique_uses "$align_dir" | wc -l | tr -d ' ')"
+if [ "$align_raw" -le "$align_unique" ]; then
+  echo "FAIL fixture uses count did not drop duplicates raw=${align_raw} unique=${align_unique}"
   fail=1
 fi
-rm -f "$live_got" "$live_want"
+expect_counts_match "fixture with duplicates and local actions" "$align_dir"
+rm -rf "$align_dir"
+
+expect_counts_match "live workflows" "$root/.github/workflows"
 
 if command -v rg >/dev/null 2>&1; then
   rg_got="$(mktemp)"
