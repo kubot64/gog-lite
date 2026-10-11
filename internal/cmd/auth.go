@@ -68,7 +68,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 	if strings.TrimSpace(c.AuthURL) != "" {
 		result, err := googleauth.Step2(ctx, creds, opts, c.AuthURL)
 		if err != nil {
-			return output.WriteError(output.ExitCodeError, "auth_exchange_error", err.Error())
+			return output.WriteError(output.ExitCodeError, "auth_exchange_error", authExchangeErrorMessage(err))
 		}
 		tokenEmail := normalizeEmail(result.Email)
 		if tokenEmail == "" || tokenEmail != account {

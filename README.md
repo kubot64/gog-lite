@@ -8,7 +8,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs / Google Sheets / 
 
 - **stdout は常に JSON** — `--help` / `--version` を含め、色・表・TSV は出力しない
 - **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
-- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いとき、Google API が HTTP 401 を返したとき、および token endpoint が `invalid_grant` を返したとき（失効・取り消し済みの refresh token）。`invalid_grant` の `error` には refresh token も応答本文も含めない。token endpoint のそれ以外の失敗は終了コード 1 のまま。`error` は固定文 `token endpoint request failed` と、取り出せた短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`error_description` と応答本文は出さない。コードを取り出せないときも本文は出さず、固定文だけになる
+- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いとき、Google API が HTTP 401 を返したとき、および token endpoint が `invalid_grant` を返したとき（失効・取り消し済みの refresh token）。`invalid_grant` の `error` には refresh token も応答本文も含めない。token endpoint のそれ以外の失敗は終了コード 1 のまま。`error` は固定文 `token endpoint request failed` と、取り出せた短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`error_description` と応答本文は出さない。コードを取り出せないときも本文は出さず、固定文だけになる。`auth login` のコード交換が token endpoint で失敗したときも同じ固定文を使う。`code` は `auth_exchange_error`、終了コードは 1 のまま（`invalid_grant` でも `auth_required` にはしない）。`error_description`、`error_uri`、応答本文は出さない。token endpoint 以外の失敗（state の不一致など）は、そのエラーメッセージのまま
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
 - **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
 - **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる。`docs write --replace` では `--confirm-replace` も承認トークンも要らない
@@ -159,7 +159,7 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 
 ブラウザで `auth_url` を開いて認証する。認証後、ブラウザは `http://127.0.0.1:PORT/oauth2/callback?code=...` に戻る。ステップ 1 はそのポートを最大 10 分つかんだままにするので、URL のコピーを案内するページが開く。ページが開かない場合でも、アドレスバーの URL をコピーすればよい。
 
-ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じリダイレクト URL でステップ 2 を再実行できる。
+ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じリダイレクト URL でステップ 2 を再実行できる。token endpoint が失敗したときの stderr は固定文 `token endpoint request failed` と短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`code` は `auth_exchange_error`、終了コードは 1。`invalid_grant` でも同じ。`error_description`、`error_uri`、応答本文は出さない。
 
 `--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 
@@ -389,6 +389,12 @@ $ gog-lite gmail labels --account unknown@gmail.com
 # exit code: 1
 # error_description と応答本文は出さない。コードを取り出せないときは
 # error は "token endpoint request failed" だけ
+
+# auth login のコード交換が token endpoint で失敗したとき
+# invalid_grant でも終了コードは 1。code は auth_exchange_error のまま
+# → stderr: {"error":"token endpoint request failed (invalid_client)","code":"auth_exchange_error"}
+# exit code: 1
+# error_description、error_uri、応答本文は出さない
 ```
 
 ## jq との組み合わせ

@@ -37,6 +37,14 @@ var (
 var oauthEndpoint = google.Endpoint
 var oauthUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo"
 
+// SetOAuthEndpointForTest points the authorization-code exchange at endpoint
+// until restore is called.
+func SetOAuthEndpointForTest(endpoint oauth2.Endpoint) (restore func()) {
+	prev := oauthEndpoint
+	oauthEndpoint = endpoint
+	return func() { oauthEndpoint = prev }
+}
+
 const (
 	oauthUserInfoBodyLimit = 1 << 20
 	// userInfoTimeout bounds the OpenID userinfo call. http.DefaultClient has

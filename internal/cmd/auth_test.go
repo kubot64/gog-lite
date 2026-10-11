@@ -3,12 +3,19 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 
 	"github.com/kubot64/gog-lite/internal/config"
 	"github.com/kubot64/gog-lite/internal/googleauth"
@@ -777,6 +784,252 @@ func assertAccountNotBlocked(t *testing.T, account string) {
 		if blocked == account {
 			t.Fatalf("expected %q not to be blocked, got %v", account, p.BlockedAccounts)
 		}
+	}
+}
+
+func TestAuthExchangeErrorMessage_TokenEndpointAndOtherErrors(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+
+	plain := errors.New("state mismatch or expired state; run step 1 again")
+	if got := authExchangeErrorMessage(plain); got != plain.Error() {
+		t.Fatalf("plain error = %q, want %q", got, plain.Error())
+	}
+
+	wrapped := fmt.Errorf("exchange code: %w", &oauth2.RetrieveError{
+		ErrorCode:        "invalid_client",
+		ErrorDescription: "echo " + marker,
+		ErrorURI:         "https://example.invalid/" + marker,
+		Body:             []byte(`{"error":"invalid_client","error_description":"echo ` + marker + `"}`),
+	})
+	got := authExchangeErrorMessage(wrapped)
+	if got != tokenEndpointFailureMessage+" (invalid_client)" {
+		t.Fatalf("retrieve error = %q", got)
+	}
+	if strings.Contains(got, marker) || strings.Contains(got, "exchange code:") || strings.Contains(got, "error_description") {
+		t.Fatalf("retrieve error leaked details: %q", got)
+	}
+
+	invalidGrant := &oauth2.RetrieveError{
+		Body: []byte(`{"error":"invalid_grant","error_description":"echo ` + marker + `"}`),
+	}
+	got = authExchangeErrorMessage(invalidGrant)
+	if got != tokenEndpointFailureMessage+" (invalid_grant)" || got == invalidGrantMessage || strings.Contains(got, marker) {
+		t.Fatalf("invalid_grant = %q, want fixed token endpoint message", got)
+	}
+
+	// Response is nil. RetrieveError.Error would panic while formatting the body.
+	unparsed := &oauth2.RetrieveError{Body: []byte("not-json " + marker)}
+	got = authExchangeErrorMessage(unparsed)
+	if got != tokenEndpointFailureMessage || strings.Contains(got, marker) {
+		t.Fatalf("unparsed = %q, want fixed sentence", got)
+	}
+}
+
+func TestExecute_AuthLoginExchangeOmitsBody(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+	const clientSecret = "super-secret-client-secret"
+	const account = "test@example.com"
+	const state = "teststate"
+	const authCode = "auth-code-" + marker
+	const redirectURI = "http://127.0.0.1:9/oauth2/callback"
+
+	tests := []struct {
+		name        string
+		contentType string
+		body        func(code, verifier string) string
+		wantOAuth   string
+	}{
+		{
+			name:        "invalid_client",
+			contentType: "application/json",
+			body: func(code, verifier string) string {
+				return `{"error":"invalid_client","error_description":"echo ` + marker + ` ` + code + ` ` + verifier + `","error_uri":"https://example.invalid/` + marker + `","client_secret":"` + clientSecret + `"}`
+			},
+			wantOAuth: "invalid_client",
+		},
+		{
+			name:        "form invalid_request",
+			contentType: "application/x-www-form-urlencoded",
+			body: func(code, verifier string) string {
+				vals := url.Values{}
+				vals.Set("error", "invalid_request")
+				vals.Set("error_description", "echo "+marker+" "+code+" "+verifier+" "+clientSecret)
+				return vals.Encode()
+			},
+			wantOAuth: "invalid_request",
+		},
+		{
+			name:        "invalid_grant stays auth_exchange_error",
+			contentType: "application/json",
+			body: func(code, verifier string) string {
+				return `{"error":"invalid_grant","error_description":"echo ` + marker + ` ` + code + `","refresh_token":"` + verifier + `","client_secret":"` + clientSecret + `"}`
+			},
+			wantOAuth: "invalid_grant",
+		},
+		{
+			name:        "unparsed body",
+			contentType: "application/json",
+			body: func(code, verifier string) string {
+				return "not-json " + marker + " " + code + " " + verifier + " " + clientSecret
+			},
+			wantOAuth: "",
+		},
+		{
+			name:        "hyphenated error code is dropped",
+			contentType: "application/json",
+			body: func(code, verifier string) string {
+				return `{"error":"` + marker + `","error_description":"` + code + " " + verifier + " " + clientSecret + `"}`
+			},
+			wantOAuth: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupFileKeyring(t)
+			t.Setenv("GOG_LITE_CLIENT_SECRET", clientSecret)
+
+			scopes, err := googleauth.ScopesForServices([]googleauth.Service{googleauth.ServiceGmail})
+			if err != nil {
+				t.Fatalf("ScopesForServices: %v", err)
+			}
+			verifier := oauth2.GenerateVerifier()
+			writeOAuthManualState(t, state, redirectURI, verifier, scopes)
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Errorf("read body: %v", err)
+				}
+				vals, err := url.ParseQuery(string(raw))
+				if err != nil {
+					t.Errorf("parse form: %v", err)
+				}
+				if vals.Get("grant_type") != "authorization_code" {
+					t.Errorf("grant_type = %q", vals.Get("grant_type"))
+				}
+				if vals.Get("code") != authCode {
+					t.Errorf("code = %q", vals.Get("code"))
+				}
+				if vals.Get("code_verifier") != verifier {
+					t.Errorf("code_verifier = %q", vals.Get("code_verifier"))
+				}
+				if vals.Get("client_secret") != clientSecret {
+					t.Errorf("client_secret = %q", vals.Get("client_secret"))
+				}
+				w.Header().Set("Content-Type", tt.contentType)
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, tt.body(vals.Get("code"), vals.Get("code_verifier")))
+			}))
+			t.Cleanup(server.Close)
+
+			restore := googleauth.SetOAuthEndpointForTest(oauth2.Endpoint{
+				AuthURL:   "https://accounts.google.com/o/oauth2/auth",
+				TokenURL:  server.URL,
+				AuthStyle: oauth2.AuthStyleInParams,
+			})
+			t.Cleanup(restore)
+
+			authURL := redirectURI + "?code=" + url.QueryEscape(authCode) + "&state=" + url.QueryEscape(state)
+			prevArgs := os.Args
+			t.Cleanup(func() { os.Args = prevArgs })
+			os.Args = []string{
+				"gog-lite", "auth", "login",
+				"--account", account,
+				"--services", "gmail",
+				"--auth-url", authURL,
+			}
+
+			var runErr error
+			var stdout string
+			stderr := captureStderr(t, func() {
+				stdout = captureStdout(t, func() {
+					runErr = Execute(context.Background(), "dev")
+				})
+			})
+			if strings.TrimSpace(stdout) != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			assertTokenEndpointFailure(t, runErr, stderr, "auth_exchange_error", tt.wantOAuth, marker)
+			if strings.Contains(stderr, invalidGrantMessage) {
+				t.Fatalf("stderr used the refresh invalid_grant message: %q", stderr)
+			}
+			for _, secret := range []string{authCode, verifier, clientSecret, "exchange code:", "error_uri"} {
+				if strings.Contains(stderr, secret) {
+					t.Fatalf("stderr leaked %q: %q", secret, stderr)
+				}
+			}
+
+			dir, err := config.Dir()
+			if err != nil {
+				t.Fatalf("Dir: %v", err)
+			}
+			statePath := filepath.Join(dir, "oauth-manual-state-"+state+".json")
+			if _, err := os.Stat(statePath); err != nil {
+				t.Fatalf("state file after failed exchange: %v", err)
+			}
+		})
+	}
+}
+
+func TestExecute_AuthLoginExchangeKeepsOtherErrors(t *testing.T) {
+	setupFileKeyring(t)
+	const marker = "leak-marker-9f3c2a"
+
+	prevArgs := os.Args
+	t.Cleanup(func() { os.Args = prevArgs })
+	os.Args = []string{
+		"gog-lite", "auth", "login",
+		"--account", "test@example.com",
+		"--services", "gmail",
+		"--auth-url", "http://127.0.0.1:9/oauth2/callback?code=" + marker + "&state=missing-state",
+	}
+
+	var runErr error
+	var stdout string
+	stderr := captureStderr(t, func() {
+		stdout = captureStdout(t, func() {
+			runErr = Execute(context.Background(), "dev")
+		})
+	})
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if got := output.ExitCode(runErr); got != output.ExitCodeError {
+		t.Fatalf("exit code = %d, want %d (stderr %q)", got, output.ExitCodeError, stderr)
+	}
+	assertErrorCode(t, stderr, "auth_exchange_error")
+	if !strings.Contains(stderr, "state mismatch") {
+		t.Fatalf("stderr = %q, want state mismatch", stderr)
+	}
+	if strings.Contains(stderr, marker) {
+		t.Fatalf("stderr leaked auth url marker: %q", stderr)
+	}
+	if strings.Contains(stderr, tokenEndpointFailureMessage) {
+		t.Fatalf("non-token failure was rewritten: %q", stderr)
+	}
+}
+
+func writeOAuthManualState(t *testing.T, state, redirectURI, verifier string, scopes []string) {
+	t.Helper()
+	dir, err := config.EnsureDir()
+	if err != nil {
+		t.Fatalf("EnsureDir: %v", err)
+	}
+	payload := map[string]any{
+		"state":         state,
+		"redirect_uri":  redirectURI,
+		"scopes":        scopes,
+		"created_at":    time.Now().UTC(),
+		"code_verifier": verifier,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	path := filepath.Join(dir, "oauth-manual-state-"+state+".json")
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
 	}
 }
 
