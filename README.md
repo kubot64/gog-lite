@@ -8,7 +8,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 
 - **stdout は常に JSON** — `--help` / `--version` を含め、色・表・TSV は出力しない
 - **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
-- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`
+- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いときと、Google API が HTTP 401 を返したとき
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
 - **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
 - **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる
@@ -361,6 +361,10 @@ $ gog-lite gmail labels --account unknown@gmail.com
   "code": "gmail_error"
 }
 # exit code: 1
+
+# Google API が HTTP 401 を返したとき（トークン未保存のときも同じ）
+# → stderr: {"error":"...","code":"auth_required"}
+# exit code: 2
 ```
 
 ## jq との組み合わせ

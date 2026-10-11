@@ -194,6 +194,7 @@ gog-lite --help
 - 保存された refresh token が無いときは Google へ送らず、終了コード 3、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。
 - `--dry-run` は失効リクエストを送らず、ローカル削除もブロックもしない。確認用 JSON と監査ログだけを返す。終了コードは 0。
 - `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
+- `auth login` の userinfo 取得は 30 秒で打ち切る。時間切れの code は `auth_exchange_error`（終了コード 1）。
 
 `auth emergency-revoke` の成功時（今回失効したとき）：
 
@@ -638,7 +639,7 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 
 | code | 終了コード | 意味 |
 |------|-----------|------|
-| `auth_required` | 2 | トークン未保存（`auth login` が必要） |
+| `auth_required` | 2 | トークン未保存、または Google API が HTTP 401 を返した。どちらも `auth login` が必要 |
 | `remote_revoke_failed` | 1 | 通信失敗または HTTP 5xx。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
 | `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。ローカル削除もブロックもしない |
 | `remote_revoke_failed` | 3 | 保存された refresh token がない。Google へは送らない。`blocked_accounts` には追加する |
@@ -648,9 +649,11 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `write_requires_confirmation` | 1 | 上書きに `--confirm-write` がない（`sheets update` など） |
 | `approval_required` | 4 | 承認必須アクションで token がない・不一致・使用済み・期限切れ |
 | `rate_limited` | 1 | action のレート制限を超えた |
-| `search_error` / `get_error` 等 | 1 | API エラー |
+| `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 は `auth_required`（終了コード 2） |
 
 ### 認証エラーの検出パターン
+
+終了コード 2 は、トークンが保存されていないときと、Google API が HTTP 401 を返したときの両方です。`code` はどちらも `auth_required` です。エージェントは `auth login` に進みます。
 
 ```bash
 err_json=$(mktemp)

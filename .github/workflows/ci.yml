@@ -98,6 +98,29 @@ jobs:
           assert any(c['name'] == 'credentials' and not c['ok'] for c in d['checks']), 'expected credentials check to fail'
           print('preflight: OK')
           "
+      - name: missing token is auth_required
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite gmail labels --account test@example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 2 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_required', f\"got code {d['code']}\"
+          print('missing-token-auth-required: OK')
+          "
       - name: confirm-delete required for calendar delete
         run: |
           HOME=$(mktemp -d)
