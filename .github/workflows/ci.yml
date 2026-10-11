@@ -825,6 +825,99 @@ jobs:
           print('file-keyring-no-dbus-dry-run: OK')
           "
 
+      - name: all-pages is capped by max-pages
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          check_help() {
+            label="$1"
+            shift
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "$label help exit code: $code"
+            cat "$err_json"
+            [ "$code" -eq 0 ]
+            [ ! -s "$err_json" ]
+            [ -s "$out_json" ] || { echo "expected JSON help on stdout"; exit 1; }
+            python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          help_text = d.get('help') or ''
+          assert '--max-pages' in help_text, help_text
+          assert '1-50' in help_text, help_text
+          print(sys.argv[2] + '-help-max-pages: OK')
+            " "$out_json" "$label"
+          }
+          check_help gmail /tmp/gog-lite gmail search --help
+          check_help calendar /tmp/gog-lite calendar list --help
+          check_invalid() {
+            label="$1"
+            shift
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "$label exit code: $code"
+            cat "$err_json"
+            [ "$code" -eq 1 ]
+            [ ! -s "$out_json" ]
+            [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+            python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d['code'] == 'invalid_arguments', d
+          assert '1 and 50' in d.get('error', ''), d
+          print(sys.argv[2] + ': OK')
+            " "$err_json" "$label"
+          }
+          check_invalid gmail-max-pages-zero \
+            /tmp/gog-lite gmail search --account test@example.com --query x --max-pages=0
+          check_invalid gmail-max-pages-over \
+            /tmp/gog-lite gmail search --account test@example.com --query x --all-pages --max-pages=51
+          check_invalid calendar-max-pages-zero \
+            /tmp/gog-lite calendar list --account test@example.com --max-pages=0
+          check_invalid calendar-max-pages-over \
+            /tmp/gog-lite calendar list --account test@example.com --all-pages --max-pages=51
+          python3 -c "
+          import os
+          root = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'ratelimit')
+          names = []
+          if os.path.isdir(root):
+              names = os.listdir(root)
+          assert names == [], names
+          print('invalid-max-pages-skips-ratelimit: OK')
+          "
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          check_reaches_auth() {
+            label="$1"
+            action="$2"
+            shift 2
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "$label exit code: $code"
+            cat "$err_json"
+            [ "$code" -eq 2 ]
+            [ ! -s "$out_json" ]
+            [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+            python3 -c "
+          import json, os, sys
+          d = json.load(open(sys.argv[1]))
+          assert d['code'] == 'auth_required', d
+          path = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'ratelimit', sys.argv[2] + '.json')
+          assert os.path.isfile(path), path
+          print(sys.argv[3] + ': OK')
+            " "$err_json" "$action" "$label"
+          }
+          check_reaches_auth gmail-all-pages-default gmail.search \
+            /tmp/gog-lite gmail search --account test@example.com --query x --all-pages
+          check_reaches_auth calendar-max-pages-10 calendar.list \
+            /tmp/gog-lite calendar list --account test@example.com --all-pages --max-pages=10
+
   security-nightly:
     name: Security Regression (nightly)
     runs-on: ubuntu-latest

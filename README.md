@@ -13,6 +13,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 - **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
 - **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる。`docs write --replace` では `--confirm-replace` も承認トークンも要らない
 - **`gmail send` は下書き保存契約** — 即時送信ではなく Gmail draft として保存する
+- **`--all-pages` はページ数に上限がある** — `gmail search` と `calendar list` の `--max-pages` は既定 10、最大 50。上限で打ち切ったときは `nextPageToken` を返す
 
 ## Safety Controls
 
@@ -226,8 +227,11 @@ HTTP 400 で `error` が `invalid_token` のとき（すでに無効、または
 ### Gmail
 
 ```bash
-# 未読メールを検索
+# 未読メールを検索（--max は 1 ページあたりの件数）
 gog-lite gmail search --account you@gmail.com --query "is:unread" --max 10
+
+# 続きをまとめて取る（既定 10 ページ、最大 50）。上限で止めたときは nextPageToken が残る
+gog-lite gmail search --account you@gmail.com --query "is:unread" --all-pages --max-pages 10
 
 # メール本文を取得
 gog-lite gmail get --account you@gmail.com --message-id MESSAGE_ID
@@ -255,7 +259,7 @@ gog-lite gmail labels --account you@gmail.com
 # カレンダー一覧
 gog-lite calendar calendars --account you@gmail.com
 
-# 今週のイベントを取得
+# 今週のイベントを取得（--all-pages も --max-pages 既定 10、最大 50）
 gog-lite calendar list --account you@gmail.com \
   --from 2026-02-24T00:00:00Z --to 2026-03-02T23:59:59Z
 
