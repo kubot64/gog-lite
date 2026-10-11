@@ -207,7 +207,7 @@ gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
 gog-lite auth emergency-revoke --account EMAIL  # Google で refresh token を失効してから削除・ブロック
 ```
 
-`auth approval-token` の `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。トークンが `-` で始まるときは `--approval-token=TOKEN` の形で渡す。
+`auth approval-token` の `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンはファイル名が違うため使えません。`auth approval-token` を発行し直してください。トークンが `-` で始まるときは `--approval-token=TOKEN` の形で渡す。
 
 `auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。
 

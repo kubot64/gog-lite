@@ -1044,7 +1044,8 @@ jobs:
           cat "$err_json"
           [ ! -s "$err_json" ]
           token=$(python3 -c "import json; print(json.load(open('$out_json'))['token'])")
-          token_path="$HOME/gog-lite/approvals/${token}.json"
+          token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+          token_path="$HOME/gog-lite/approvals/${token_hash}.json"
           token_lock="${token_path}.lock"
           hold_live_lock "$token_lock"
           expect_lock_timeout approval_required aged-approval-lock \
