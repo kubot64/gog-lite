@@ -8,7 +8,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs / Google Sheets / 
 
 - **stdout は常に JSON** — `--help` / `--version` を含め、色・表・TSV は出力しない
 - **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
-- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いときと、Google API が HTTP 401 を返したとき
+- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いとき、Google API が HTTP 401 を返したとき、および token endpoint が `invalid_grant` を返したとき（失効・取り消し済みの refresh token）。`invalid_grant` の `error` には refresh token も応答本文も含めない
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
 - **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
 - **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる。`docs write --replace` では `--confirm-replace` も承認トークンも要らない
@@ -193,7 +193,7 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs --for
 
 4. 表示された `auth_url` をブラウザで開き、リダイレクト先の URL を `--auth-url` に渡して、上のステップ 2 を完了する。
 
-新しく保存されるトークンが持つスコープは、選んだサービスについて下の表だけです。再認証の前は、API 呼び出しが `auth_required` で失敗することがあります。
+新しく保存されるトークンが持つスコープは、選んだサービスについて下の表だけです。再認証の前は、API 呼び出しが `auth_required` で失敗することがあります。失効・取り消し済みの refresh token も、token endpoint の `invalid_grant` で同じ `auth_required` になります。
 
 ## 使い方
 
@@ -377,9 +377,11 @@ $ gog-lite gmail labels --account unknown@gmail.com
 }
 # exit code: 1
 
-# Google API が HTTP 401 を返したとき（トークン未保存のときも同じ）
+# Google API が HTTP 401 を返したとき、または token endpoint が invalid_grant を返したとき
+# （トークン未保存のときも同じ）
 # → stderr: {"error":"...","code":"auth_required"}
 # exit code: 2
+# invalid_grant の error には refresh token も token endpoint の応答本文も含めない
 ```
 
 ## jq との組み合わせ
