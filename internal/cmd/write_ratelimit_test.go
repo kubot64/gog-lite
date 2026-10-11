@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kubot64/gog-lite/internal/config"
 )
@@ -209,6 +210,119 @@ func TestSheetsUpdateCmd_DryRunDoesNotConsumeRateLimit(t *testing.T) {
 	}
 	if code := stderrErrorCode(t, stderr); code == "rate_limited" {
 		t.Fatalf("dry-run consumed the write rate limit: %s", stderr)
+	}
+}
+
+func TestRateLimitDoesNotConsumeApprovalToken(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("GOG_LITE_CLIENT_ID", "")
+	t.Setenv("GOG_LITE_CLIENT_SECRET", "")
+
+	orig := writeRateLimitPerMinute
+	writeRateLimitPerMinute = 1
+	t.Cleanup(func() { writeRateLimitPerMinute = orig })
+
+	cases := []struct {
+		rateAction     string
+		approvalAction string
+		run            func(token string) error
+	}{
+		{
+			rateAction:     "sheets.update",
+			approvalAction: "sheets.update",
+			run: func(token string) error {
+				return (&SheetsUpdateCmd{
+					Account:       "a@example.com",
+					SpreadsheetID: "sp",
+					Range:         "Sheet1!A1",
+					Values:        `[["x"]]`,
+					ConfirmWrite:  true,
+					ApprovalToken: token,
+				}).Run(context.Background(), &RootFlags{})
+			},
+		},
+		{
+			rateAction:     "calendar.delete",
+			approvalAction: "calendar.delete",
+			run: func(token string) error {
+				return (&CalendarDeleteCmd{
+					Account:       "a@example.com",
+					EventID:       "evt",
+					ConfirmDelete: true,
+					ApprovalToken: token,
+				}).Run(context.Background(), &RootFlags{})
+			},
+		},
+		{
+			rateAction:     "docs.write",
+			approvalAction: "docs.write.replace",
+			run: func(token string) error {
+				return (&DocsWriteCmd{
+					Account:        "a@example.com",
+					DocID:          "doc",
+					Content:        "hello",
+					Replace:        true,
+					ConfirmReplace: true,
+					ApprovalToken:  token,
+				}).Run(context.Background(), &RootFlags{})
+			},
+		},
+		{
+			rateAction:     "docs.find_replace",
+			approvalAction: "docs.find_replace",
+			run: func(token string) error {
+				return (&DocsFindReplaceCmd{
+					Account:            "a@example.com",
+					DocID:              "doc",
+					Find:               "a",
+					Replace:            "b",
+					ConfirmFindReplace: true,
+					ApprovalToken:      token,
+				}).Run(context.Background(), &RootFlags{})
+			},
+		},
+		{
+			rateAction:     "slides.write",
+			approvalAction: "slides.write",
+			run: func(token string) error {
+				return (&SlidesWriteCmd{
+					Account:        "a@example.com",
+					PresentationID: "pres",
+					Find:           "a",
+					Replace:        "b",
+					ConfirmWrite:   true,
+					ApprovalToken:  token,
+				}).Run(context.Background(), &RootFlags{})
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.approvalAction, func(t *testing.T) {
+			if err := enforceWriteRateLimit(tc.rateAction); err != nil {
+				t.Fatalf("seed rate limit: %v", err)
+			}
+			token, _, err := issueApprovalToken("a@example.com", tc.approvalAction, time.Minute)
+			if err != nil {
+				t.Fatalf("issueApprovalToken: %v", err)
+			}
+
+			var runErr error
+			stderr := captureStderr(t, func() {
+				runErr = tc.run(token)
+			})
+			if runErr == nil {
+				t.Fatal("expected rate_limited")
+			}
+			if code := stderrErrorCode(t, stderr); code != "rate_limited" {
+				t.Fatalf("code = %q, want rate_limited (%s)", code, stderr)
+			}
+			if err := consumeApprovalToken("a@example.com", tc.approvalAction, token); err != nil {
+				t.Fatalf("rate limit consumed the approval token: %v", err)
+			}
+		})
 	}
 }
 

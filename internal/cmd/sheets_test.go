@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -425,5 +426,32 @@ func TestSheetsAppendCmd_UserEnteredDryRun(t *testing.T) {
 	}
 	if payload.Params.ValueInput != "USER_ENTERED" {
 		t.Errorf("value_input = %q, want USER_ENTERED", payload.Params.ValueInput)
+	}
+}
+
+func TestExecute_InvalidSheetsValueInput(t *testing.T) {
+	prevArgs := os.Args
+	t.Cleanup(func() { os.Args = prevArgs })
+	os.Args = []string{
+		"gog-lite", "--dry-run", "sheets", "update",
+		"--account", "a@example.com",
+		"--spreadsheet-id", "sp",
+		"--range", "Sheet1!A1",
+		"--values", `[["a"]]`,
+		"--value-input", "FORMULA",
+	}
+
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = Execute(context.Background(), "dev")
+	})
+	if runErr == nil {
+		t.Fatal("expected invalid --value-input to be rejected")
+	}
+	if output.ExitCode(runErr) != output.ExitCodeError {
+		t.Fatalf("exit code = %d, want %d", output.ExitCode(runErr), output.ExitCodeError)
+	}
+	if code := stderrErrorCode(t, stderr); code != "invalid_arguments" {
+		t.Fatalf("code = %q, want invalid_arguments (kong enum rejects the flag before Run)", code)
 	}
 }

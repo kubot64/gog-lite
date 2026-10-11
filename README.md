@@ -131,7 +131,9 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 # → {"auth_url": "https://accounts.google.com/...", "next_step": "..."}
 ```
 
-ブラウザで `auth_url` を開いて認証する。リダイレクト先のURL（読み込めなくてOK）をコピーして：
+ブラウザで `auth_url` を開いて認証する。認証後、ブラウザは `http://127.0.0.1:PORT/oauth2/callback?code=...` に戻る。ステップ 1 はそのポートを最大 10 分つかんだままにするので、URL のコピーを案内するページが開く。ページが開かない場合でも、アドレスバーの URL をコピーすればよい。
+
+ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。
 
 > `エラー 403: access_denied` が出る場合は、OAuth 同意画面の Test users に該当 Gmail を追加してください。
 
@@ -141,6 +143,29 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs \
   --auth-url "http://127.0.0.1:PORT/oauth2/callback?code=..."
 # → {"stored": true, "email": "you@gmail.com", "services": [...]}
 ```
+
+### スコープを狭めたあとの再認証
+
+ログイン時に同意する OAuth スコープは、各コマンドが実際に使う範囲だけになりました。それ以前に保存した refresh token は、より広い権限（Gmail の変更・設定、Drive の全ファイルの変更など）を持ったまま残ります。同意 URL には `include_granted_scopes=true` を付けるため、同意画面を出し直すだけでは、過去に付いたスコープは外れません。
+
+次の順でやり直してください。
+
+1. ブラウザで [Google アカウントのサードパーティ アクセス](https://myaccount.google.com/permissions) を開き、この OAuth クライアント（gog-lite）のアクセス権を削除する。
+2. ローカルに保存したトークンを削除する。
+
+```bash
+gog-lite auth remove --account you@gmail.com
+```
+
+3. `--force-consent` を付けて同意を取り直す。
+
+```bash
+gog-lite auth login --account you@gmail.com --services gmail,calendar,docs --force-consent
+```
+
+4. 表示された `auth_url` をブラウザで開き、リダイレクト先の URL を `--auth-url` に渡して、上のステップ 2 を完了する。
+
+新しく保存されるトークンが持つスコープは、選んだサービスについて下の表だけです。再認証の前は、API 呼び出しが `auth_required` で失敗することがあります。
 
 ## 使い方
 
@@ -331,6 +356,10 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 `GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
 
 ## 対応サービスと必要スコープ
+
+`auth login --services` で選んだサービスごとに、ログイン時は次のスコープへ同意します。実行時の API クライアントは、操作に応じてその一部だけを要求します。
+
+`docs export` は Drive API の `files.export` で既存のドキュメントを書き出します。`drive.file` は、このアプリが作成したファイルか、Google ピッカーで開いたファイルにしか届かないため、ドキュメント ID を指定するこのコマンドには足りません。読み取り専用の `drive.readonly` を使います。すべてのファイルを変更・削除できる `drive` スコープは要求しません。
 
 | サービス | 有効化が必要なAPI | スコープ |
 |---------|-----------------|---------|
