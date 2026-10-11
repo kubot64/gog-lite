@@ -385,8 +385,10 @@ func authURLParams(forceConsent bool) []oauth2.AuthCodeOption {
 }
 
 // Step1 generates the authorization URL. The caller should present auth_url to the user.
-// The user authorizes and is redirected to a loopback URL that won't load.
-// They should copy that URL and pass it to Step2.
+// The user authorizes and is redirected to a loopback URL, then copies that URL
+// into Step2. Linux and macOS keep the port open and show a page that says so.
+// Windows cannot pass the listening socket to another process, so the port is
+// not kept and the page does not load.
 func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOptions) (Step1Result, error) {
 	if len(opts.Scopes) == 0 {
 		return Step1Result{}, errMissingScopes
@@ -397,7 +399,8 @@ func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 	// Reuse an unexpired state when its callback port is still served by this
 	// program. The stored verifier must be the one that produced the original
 	// code_challenge. If another process holds the port, drop that state and
-	// mint a new port, state, and verifier below.
+	// mint a new port, state, and verifier below. Platforms that cannot hold
+	// the port reuse the state when the port is free.
 	for {
 		st, ok, err := loadManualState(scopes)
 		if err != nil {
@@ -448,7 +451,7 @@ func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step1Result{}, err
 	}
 
-	if err := holdCallbackPort(ln); err != nil {
+	if err := holdCallbackPortOrRelease(ln); err != nil {
 		_ = ln.Close()
 		_ = clearManualState(state)
 		return Step1Result{}, err

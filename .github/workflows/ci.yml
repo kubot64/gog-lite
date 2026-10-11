@@ -49,6 +49,17 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
       - run: go vet ./...
+      - name: Vet and compile tests for Windows
+        run: |
+          set -euo pipefail
+          export GOOS=windows
+          export GOARCH=amd64
+          export CGO_ENABLED=0
+          go vet ./...
+          mapfile -t pkgs < <(go list ./...)
+          for pkg in "${pkgs[@]}"; do
+            go test -c -o /dev/null "$pkg"
+          done
       - run: go test ./...
         env:
           GOG_LITE_KEYRING_BACKEND: file

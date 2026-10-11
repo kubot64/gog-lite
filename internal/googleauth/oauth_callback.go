@@ -107,10 +107,12 @@ var callbackProbeClient = &http.Client{
 	},
 }
 
-// ensureCallbackPort keeps redirectURI served by this program's callback holder.
-// keep is true when this call started the holder, or when the process already
-// bound to the port returns the holder page. keep is false when that response
-// cannot be confirmed; the caller drops the saved state.
+// ensureCallbackPort reports whether redirectURI can still be used.
+// keep is true when this call started the holder, when the process already
+// bound to the port returns the holder page, or when this platform cannot
+// hold the port and the port is free. keep is false when another process
+// has the port and does not return the holder page; the caller drops the
+// saved state.
 func ensureCallbackPort(redirectURI string) (bool, error) {
 	host, err := callbackHost(redirectURI)
 	if err != nil {
@@ -126,7 +128,7 @@ func ensureCallbackPort(redirectURI string) (bool, error) {
 		return false, fmt.Errorf("listen for oauth callback: %w", err)
 	}
 
-	if err := holdCallbackPort(ln); err != nil {
+	if err := holdCallbackPortOrRelease(ln); err != nil {
 		_ = ln.Close()
 		return false, err
 	}
@@ -171,6 +173,22 @@ func callbackHost(redirectURI string) (string, error) {
 	}
 
 	return net.JoinHostPort(u.Hostname(), u.Port()), nil
+}
+
+// holdCallbackPortOrRelease keeps ln open in a detached child on platforms
+// that can pass the socket. Elsewhere it closes ln and returns nil, so step 1
+// still succeeds: the copy page does not load, and the user copies the
+// address-bar URL. A failure to hold on a supported platform is returned.
+func holdCallbackPortOrRelease(ln net.Listener) error {
+	if !callbackHoldSupported {
+		if err := ln.Close(); err != nil {
+			return fmt.Errorf("close oauth callback listener: %w", err)
+		}
+
+		return nil
+	}
+
+	return holdCallbackPort(ln)
 }
 
 // holdCallbackPort passes ln to a detached child and waits until the port
