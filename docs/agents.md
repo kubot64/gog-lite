@@ -39,6 +39,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `--confirm-*`: 削除・置換などの高リスク操作に必要
 - `--approval-token`: policy により追加承認が必要な操作で使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
 - 書き込み系コマンド（calendar の作成・更新・削除、docs の作成・書き込み・置換・export、sheets の update・append、slides write）は action ごとに 1 分あたり 30 回まで。超過時の code は `rate_limited`。`--dry-run` は回数に含めない。`gmail.send` は 1 分あたり 20 回
+- 承認トークンはレート制限を通過したあとに消費する。`rate_limited` のときはトークンは残る
 - `--audit-log`: 書き込み操作を JSONL で記録する
 - `--allowed-output-dir`: エクスポートなどのファイル出力先を制限する
 
@@ -589,7 +590,7 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `auth_required` | 2 | トークン未保存（`auth login` が必要） |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
-| `invalid_value_input` | 1 | `--value-input` が `RAW` / `USER_ENTERED` 以外 |
+| `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外のときもこれ |
 | `write_requires_confirmation` | 1 | 上書きに `--confirm-write` がない（`sheets update` など） |
 | `approval_required` | 4 | 承認必須アクションで token がない・不一致・使用済み・期限切れ |
 | `rate_limited` | 1 | action のレート制限を超えた |

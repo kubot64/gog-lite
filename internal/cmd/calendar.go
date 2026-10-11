@@ -420,18 +420,6 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "delete_requires_confirmation",
 			"calendar delete requires --confirm-delete")
 	}
-	if !dryRun {
-		required, err := actionRequiresApproval("calendar.delete")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			if err := consumeApprovalToken(c.Account, "calendar.delete", c.ApprovalToken); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
-	}
-
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "calendar.delete",
@@ -454,6 +442,16 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	if err := enforceWriteRateLimit("calendar.delete"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("calendar.delete")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		if err := consumeApprovalToken(c.Account, "calendar.delete", c.ApprovalToken); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
 	}
 
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)

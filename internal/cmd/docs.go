@@ -319,17 +319,6 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "replace_requires_confirmation",
 			"--replace requires --confirm-replace to reduce destructive mistakes")
 	}
-	if !dryRun && c.Replace {
-		required, err := actionRequiresApproval("docs.write.replace")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			if err := consumeApprovalToken(c.Account, "docs.write.replace", c.ApprovalToken); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
-	}
 
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
@@ -355,6 +344,18 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	if err := enforceWriteRateLimit("docs.write"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	if c.Replace {
+		required, err := actionRequiresApproval("docs.write.replace")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			if err := consumeApprovalToken(c.Account, "docs.write.replace", c.ApprovalToken); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
 	}
 
 	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
@@ -443,17 +444,6 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "find_replace_requires_confirmation",
 			"docs find-replace requires --confirm-find-replace")
 	}
-	if !dryRun {
-		required, err := actionRequiresApproval("docs.find_replace")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			if err := consumeApprovalToken(c.Account, "docs.find_replace", c.ApprovalToken); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
-	}
 
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
@@ -479,6 +469,16 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	if err := enforceWriteRateLimit("docs.find_replace"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("docs.find_replace")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		if err := consumeApprovalToken(c.Account, "docs.find_replace", c.ApprovalToken); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
 	}
 
 	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)

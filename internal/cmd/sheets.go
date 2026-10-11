@@ -151,18 +151,6 @@ func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 			"sheets update requires --confirm-write")
 	}
 
-	if !root.DryRun {
-		required, err := actionRequiresApproval("sheets.update")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			if err := consumeApprovalToken(c.Account, "sheets.update", c.ApprovalToken); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
-	}
-
 	if root.DryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "sheets.update",
@@ -187,6 +175,16 @@ func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	if err := enforceWriteRateLimit("sheets.update"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("sheets.update")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		if err := consumeApprovalToken(c.Account, "sheets.update", c.ApprovalToken); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
 	}
 
 	svc, err := googleapi.NewSheetsWrite(ctx, c.Account)
@@ -321,6 +319,8 @@ func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
 
 // normalizeSheetsValueInput defaults to RAW so values that start with "="
 // stay text unless the caller explicitly opts into USER_ENTERED.
+// The CLI enum rejects other values as invalid_arguments before Run.
+// This check covers callers that invoke the command directly.
 func normalizeSheetsValueInput(v string) (string, error) {
 	switch strings.TrimSpace(v) {
 	case "", "RAW":

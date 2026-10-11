@@ -158,18 +158,6 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 			"slides write requires --confirm-write")
 	}
 
-	if !root.DryRun {
-		required, err := actionRequiresApproval("slides.write")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			if err := consumeApprovalToken(c.Account, "slides.write", c.ApprovalToken); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
-	}
-
 	if root.DryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "slides.write",
@@ -194,6 +182,16 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	if err := enforceWriteRateLimit("slides.write"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("slides.write")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		if err := consumeApprovalToken(c.Account, "slides.write", c.ApprovalToken); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
 	}
 
 	svc, err := googleapi.NewSlidesWrite(ctx, c.Account)
