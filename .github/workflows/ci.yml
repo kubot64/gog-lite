@@ -1046,7 +1046,7 @@ jobs:
           token_lock="${token_path}.lock"
           hold_live_lock "$token_lock"
           expect_lock_timeout approval_required aged-approval-lock \
-            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token "$token"
+            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token="$token"
           python3 -c "
           import json
           st = json.load(open('$token_path'))
@@ -1056,7 +1056,7 @@ jobs:
           rm -f "$token_lock"
           err_json=$(mktemp)
           out_json=$(mktemp)
-          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
           echo "consume after release, exit code: $code"
           cat "$err_json"
           [ "$code" -eq 2 ]
