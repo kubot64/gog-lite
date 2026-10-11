@@ -6,7 +6,6 @@ require (
 	github.com/99designs/keyring v1.2.2
 	github.com/alecthomas/kong v1.13.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/term v0.47.0
 	google.golang.org/api v0.264.0
 )
 
@@ -36,6 +35,7 @@ require (
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc v1.83.2 // indirect

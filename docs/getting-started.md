@@ -232,7 +232,7 @@ OAuth 同意画面の **Test users** に対象 Gmail が追加されていない
 
 ### `keyring_error` が出る（Linux / ヘッドレス環境）
 
-OS のキーリングが使えない環境では、ファイルバックエンドを使います：
+OS のキーリングが使えない環境では、ファイルバックエンドを使います。Linux で D-Bus のセッションバス（`DBUS_SESSION_BUS_ADDRESS`）が無いときは、自動でファイルバックエンドになります。どちらの場合も `GOG_LITE_KEYRING_PASSWORD` が必須で、未設定・空文字・空白だけは `keyring_error` になります。パスワードの入力プロンプトは出ません。
 
 ```bash
 export GOG_LITE_KEYRING_BACKEND=file
