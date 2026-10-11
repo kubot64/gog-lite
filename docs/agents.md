@@ -45,7 +45,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 
 - `--dry-run`: API を呼ばずに実行内容を確認する
 - `--confirm-*`: 削除・置換などの高リスク操作に必要
-- `--approval-token`: 承認必須アクションで使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。`require_approval_actions` はこれに追加し、`exempt_approval_actions` は既定から外す。両方に書いたアクションは承認必須のまま
+- `--approval-token`: 承認必須アクションで使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。`require_approval_actions` はこれに追加し、`exempt_approval_actions` は既定から外す。両方に書いたアクションは承認必須のまま。新しく発行するトークンは `-` で始まらないので、空白区切りで渡せる。`-` で始まる未使用トークンは有効で、`--approval-token=TOKEN` の形で渡す
 - 書き込み系コマンド（calendar の作成・更新・削除、docs の作成・書き込み・置換・export、sheets の update・append、slides write）は action ごとに 1 分あたり 30 回まで。超過時の code は `rate_limited`。`--dry-run` は回数に含めない。`gmail.send` は 1 分あたり 20 回
 - 承認トークンはレート制限を通過したあとに消費する。`rate_limited` のときはトークンは残る
 - `--audit-log`: 書き込み操作を JSONL で記録する。省略時は設定ディレクトリの `audit.log`。追記はファイルロックの中で行い、新規行の `hash` は keyring の HMAC-SHA256（`hash_alg=hmac-sha256`）。末尾ハッシュも keyring に残す。`hash_alg` の無い行は従来の SHA-256 として検証する。ロックは保持しているプロセスが終了するまで有効で、5 秒以内に取れないときは `audit_error`
@@ -193,7 +193,7 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須（既定に `require_approval_actions` を足し、`exempt_approval_actions` で外した既定を除いた集合。両方にあるときは承認必須）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
-- 発行された `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンはファイル名が違うため使えません。発行し直してください。トークンが `-` で始まるときは `--approval-token=TOKEN` の形で渡す。
+- 発行された `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
 - `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
 - HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。
 - HTTP 400 かつ本文の `error` が `invalid_token` のときは、すでに失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
@@ -691,7 +691,7 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `rate_limited` | 1 | action のレート制限を超えた。ロックを 5 秒以内に取れないときも含む。そのとき `error` に `acquire lock` と `timeout` が入る |
 | `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2） |
 
-HTTP 429 のときは `Retry-After`（秒数または HTTP 日付）を待って最大 3 回再試行する。待ちは 1 回あたり 30 秒で打ち切る。負の値や過去の日付は待たない。この上限は終了コードや `code` を変えない。再試行後も失敗したときは、各コマンドの API エラー（終了コード 1）のまま。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2）。`invalid_grant` の `error` には refresh token も応答本文も含めない。
+HTTP 429 のときは `Retry-After`（秒数または HTTP 日付）を待って最大 3 回再試行する。待ちは 1 回あたり 30 秒で打ち切る。負の値や過去の日付は待たない。待ちがリクエストの残り時間に収まらないとき（API クライアントのタイムアウトは 30 秒）は待たず、再試行しない。上限で切り詰めたときも、待ちを省いたときも、再試行後に失敗したときも、終了コードと `code` は各コマンドの API エラー（終了コード 1）のまま。`rate_limited` にはしない。`rate_limited` はローカルの回数制限で、そのときは承認トークンが残る。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2）。`invalid_grant` の `error` には refresh token も応答本文も含めない。
 
 ### 認証エラーの検出パターン
 

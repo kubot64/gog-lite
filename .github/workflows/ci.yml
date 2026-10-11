@@ -315,6 +315,41 @@ jobs:
           assert d['code'] == 'approval_required', d
           print('approval-token-reuse: OK')
           "
+      - name: approval-token space-separated value is accepted
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          [ -n "$token" ] || { echo "approval token was empty"; exit 1; }
+          case "$token" in
+            -*) echo "issued approval token starts with a hyphen"; exit 1 ;;
+          esac
+          token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+          token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token_hash}.json"
+          [ -s "$token_file" ] || { echo "approval token file was not written"; exit 1; }
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          # Separate argv from the flag. A value that starts with '-' is parsed as a flag.
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+            --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json, sys
+          err = json.load(open(sys.argv[1]))
+          assert err.get('code') != 'invalid_arguments', err.get('code')
+          assert err.get('code') == 'auth_required', err.get('code')
+          state = json.load(open(sys.argv[2]))
+          assert state.get('used') is True, {'used': state.get('used')}
+          print('approval-token-space-separated: OK')
+          " "$err_json" "$token_file"
       - name: dry-run skips confirm and approval-token
         run: |
           HOME=$(mktemp -d)

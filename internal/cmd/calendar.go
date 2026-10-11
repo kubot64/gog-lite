@@ -412,7 +412,7 @@ type CalendarDeleteCmd struct {
 	EventID       string `name:"event-id" required:"" help:"Calendar event ID."`
 	CalendarID    string `name:"calendar-id" default:"primary" help:"Calendar ID."`
 	ConfirmDelete bool   `name:"confirm-delete" help:"Required confirmation flag for delete operations."`
-	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
