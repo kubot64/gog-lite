@@ -26,6 +26,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `stdout` は成功時 JSON のみを返す
 - `stderr` は失敗時 JSON エラーのみを返す
 - 終了コードは `0/1/2/3/4` に固定する
+- 終了コード 2（`auth_required`）は、トークン未保存、Google API の HTTP 401、token endpoint の `invalid_grant` のいずれか。`invalid_grant` の `error` に refresh token や token endpoint の応答本文は含めない
 - アカウント対象コマンドでは `--account` を必須とする
 - 書き込み系操作は `--dry-run` を標準の事前確認手段とする
 - 破壊的操作は `confirm` と必要に応じて `approval-token` で保護する
@@ -675,7 +676,7 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 
 | code | 終了コード | 意味 |
 |------|-----------|------|
-| `auth_required` | 2 | トークン未保存、または Google API が HTTP 401 を返した。どちらも `auth login` が必要 |
+| `auth_required` | 2 | トークン未保存、Google API の HTTP 401、または token endpoint の `invalid_grant`。どれも `auth login` が必要。`invalid_grant` の `error` には refresh token も応答本文も含めない |
 | `remote_revoke_failed` | 1 | 通信失敗または HTTP 5xx。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
 | `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
 | `remote_revoke_failed` | 3 | 保存された refresh token がない。Google へは送らない。`blocked_accounts` には追加する |
@@ -688,13 +689,13 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `audit_error` | 1 | 監査ログを追記できない。ロックを 5 秒以内に取れないときも含む。`error` に `acquire lock` と `timeout` が入る |
 | `approval_required` | 4 | 承認必須アクションで token がない・不一致・使用済み・期限切れ。ロックを 5 秒以内に取れないときも含む。そのときトークンは未消費で、`error` に `acquire lock` と `timeout` が入る |
 | `rate_limited` | 1 | action のレート制限を超えた。ロックを 5 秒以内に取れないときも含む。そのとき `error` に `acquire lock` と `timeout` が入る |
-| `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 は `auth_required`（終了コード 2） |
+| `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2） |
 
-HTTP 429 のときは `Retry-After`（秒数または HTTP 日付）を待って最大 3 回再試行する。待ちは 1 回あたり 30 秒で打ち切る。負の値や過去の日付は待たない。この上限は終了コードや `code` を変えない。再試行後も失敗したときは、各コマンドの API エラー（終了コード 1）のまま。HTTP 401 は `auth_required`（終了コード 2）。
+HTTP 429 のときは `Retry-After`（秒数または HTTP 日付）を待って最大 3 回再試行する。待ちは 1 回あたり 30 秒で打ち切る。負の値や過去の日付は待たない。この上限は終了コードや `code` を変えない。再試行後も失敗したときは、各コマンドの API エラー（終了コード 1）のまま。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2）。`invalid_grant` の `error` には refresh token も応答本文も含めない。
 
 ### 認証エラーの検出パターン
 
-終了コード 2 は、トークンが保存されていないときと、Google API が HTTP 401 を返したときの両方です。`code` はどちらも `auth_required` です。エージェントは `auth login` に進みます。
+終了コード 2 は、トークンが保存されていないとき、Google API が HTTP 401 を返したとき、および refresh 時に token endpoint が `invalid_grant`（HTTP 400 が多い）を返したときです。`code` はどれも `auth_required` です。`invalid_grant` の `error` には refresh token も token endpoint の応答本文も含めません。エージェントは `auth login` に進みます。
 
 ```bash
 err_json=$(mktemp)
