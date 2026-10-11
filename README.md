@@ -8,7 +8,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs / Google Sheets / 
 
 - **stdout は常に JSON** — `--help` / `--version` を含め、色・表・TSV は出力しない
 - **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
-- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いとき、Google API が HTTP 401 を返したとき、および token endpoint が `invalid_grant` を返したとき（失効・取り消し済みの refresh token）。`invalid_grant` の `error` には refresh token も応答本文も含めない
+- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いとき、Google API が HTTP 401 を返したとき、および token endpoint が `invalid_grant` を返したとき（失効・取り消し済みの refresh token）。`invalid_grant` の `error` には refresh token も応答本文も含めない。token endpoint のそれ以外の失敗は終了コード 1 のまま。`error` は固定文 `token endpoint request failed` と、取り出せた短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`error_description` と応答本文は出さない。コードを取り出せないときも本文は出さず、固定文だけになる
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
 - **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
 - **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる。`docs write --replace` では `--confirm-replace` も承認トークンも要らない
@@ -382,6 +382,13 @@ $ gog-lite gmail labels --account unknown@gmail.com
 # → stderr: {"error":"...","code":"auth_required"}
 # exit code: 2
 # invalid_grant の error には refresh token も token endpoint の応答本文も含めない
+
+# token endpoint が invalid_grant 以外で失敗したとき（invalid_client など）
+# gmail labels のとき code は labels_error。コマンドごとに API エラーの code は違う
+# → stderr: {"error":"token endpoint request failed (invalid_client)","code":"labels_error"}
+# exit code: 1
+# error_description と応答本文は出さない。コードを取り出せないときは
+# error は "token endpoint request failed" だけ
 ```
 
 ## jq との組み合わせ
