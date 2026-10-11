@@ -23,6 +23,7 @@
 - 破壊的操作の confirm フラグ確認
 - `--dry-run` の優先利用
 - 必要アクションで approval-token を要求（使い捨て）
+- 承認必須アクションは、既定（`calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`）と `require_approval_actions` の和集合とし、既定から外す操作は `exempt_approval_actions` に明示する。両方に含まれる操作は承認必須のままとする。
 - 監査ログ（ハッシュチェーン）への記録
 - action 単位のレートリミット
 - stdin サイズ上限の強制

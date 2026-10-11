@@ -405,6 +405,71 @@ jobs:
           assert entry.get('dry_run') is True, entry
           print('emergency-revoke-dry-run: OK')
           "
+      - name: require_approval_actions keeps default destructive actions
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          mkdir -p "$HOME/gog-lite"
+          printf '%s\n' '{"require_approval_actions":["gmail.draft"]}' > "$HOME/gog-lite/policy.json"
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete >/dev/null 2>"$err_json" && code=0 || code=$?
+          echo "default still required, exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('approval-defaults-kept: OK')
+          "
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth approval-token --account test@example.com --action gmail.draft --ttl 10m >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "added action token, exit code: $code"
+          cat "$out_json"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ -s "$out_json" ] || { echo "expected approval token JSON"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$out_json'))
+          assert d.get('token'), d
+          assert d.get('action') == 'gmail.draft', d
+          print('approval-added-action: OK')
+          "
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          mkdir -p "$HOME/gog-lite"
+          printf '%s\n' '{"require_approval_actions":["gmail.draft"],"exempt_approval_actions":["calendar.delete"]}' > "$HOME/gog-lite/policy.json"
+          err_json=$(mktemp)
+          /tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m >/dev/null 2>"$err_json" && code=0 || code=$?
+          echo "exempted token issue, exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 1 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_not_required', f\"got code {d['code']}\"
+          print('approval-exempt-token: OK')
+          "
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete >/dev/null 2>"$err_json" && code=0 || code=$?
+          echo "exempted delete, exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 2 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_required', f\"got code {d['code']}\"
+          print('approval-exempt-reaches-auth: OK')
+          "
 
   security-nightly:
     name: Security Regression (nightly)

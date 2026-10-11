@@ -38,11 +38,33 @@ AI や自動化が安定して依存してよい契約は次の通り。
 
 - `--dry-run`: API を呼ばずに実行内容を確認する
 - `--confirm-*`: 削除・置換などの高リスク操作に必要
-- `--approval-token`: policy により追加承認が必要な操作で使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
+- `--approval-token`: 承認必須アクションで使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。`require_approval_actions` はこれに追加し、`exempt_approval_actions` は既定から外す。両方に書いたアクションは承認必須のまま
 - 書き込み系コマンド（calendar の作成・更新・削除、docs の作成・書き込み・置換・export、sheets の update・append、slides write）は action ごとに 1 分あたり 30 回まで。超過時の code は `rate_limited`。`--dry-run` は回数に含めない。`gmail.send` は 1 分あたり 20 回
 - 承認トークンはレート制限を通過したあとに消費する。`rate_limited` のときはトークンは残る
 - `--audit-log`: 書き込み操作を JSONL で記録する
 - `--allowed-output-dir`: エクスポートなどのファイル出力先を制限する
+
+## 実行ポリシー（policy.json）
+
+パスは設定ディレクトリの `policy.json`（Linux は `~/.config/gog-lite/policy.json`、macOS は `~/Library/Application Support/gog-lite/policy.json`）。ファイルが無いときはアクション制限はなく、既定の承認必須アクションだけが有効になる。
+
+| フィールド | 意味 |
+|---|---|
+| `allowed_actions` | 空ならすべて許可。値があるときはそのアクションだけ許可 |
+| `blocked_accounts` | 拒否するアカウント |
+| `require_approval_actions` | 既定の承認必須アクションに追加する |
+| `exempt_approval_actions` | 既定から承認を外す。`require_approval_actions` にもあるアクションは承認必須のまま |
+
+既定の承認必須アクションは `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。実行時にトークンを確認するのは `calendar delete`、`docs write --replace`、`docs find-replace`、`sheets update`、`slides write`。`auth approval-token` は、この実効集合に入っているアクションにだけトークンを発行する。
+
+```json
+{
+  "require_approval_actions": ["gmail.draft"],
+  "exempt_approval_actions": ["slides.write"]
+}
+```
+
+この例では `gmail.draft` の承認トークンを発行でき、`slides.write` は承認不要になる。`calendar.delete` は承認必須のまま。`slides write` の `--confirm-write` は残る。
 
 ## What Agents May Safely Depend On
 
@@ -159,7 +181,7 @@ gog-lite --version
 gog-lite --help
 ```
 
-- `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須アクション（`require_approval_actions` またはデフォルト）である場合のみ発行される。
+- `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須（既定に `require_approval_actions` を足し、`exempt_approval_actions` で外した既定を除いた集合。両方にあるときは承認必須）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
 - `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
@@ -461,7 +483,7 @@ gog-lite sheets get --account EMAIL --spreadsheet-id SPREADSHEET_ID --range "She
 
 既存セルの上書き。値の既定は `RAW`（`=SUM(...)` のような文字列は数式にならない）。数式や日付として解釈するときだけ `--value-input USER_ENTERED` を付ける。
 
-本実行には `--confirm-write` が必要。`sheets.update` は既定の承認必須アクションなので、policy で外していない限り `--approval-token` も必要。`--dry-run` では確認フラグも承認トークンも不要で、API は呼ばない。
+本実行には `--confirm-write` が必要。`sheets.update` は既定の承認必須アクションなので、`exempt_approval_actions` に含めていない限り `--approval-token` も必要。`require_approval_actions` に同じアクションがあるときは承認必須のまま。`--dry-run` では確認フラグも承認トークンも不要で、API は呼ばない。
 
 ```bash
 gog-lite --dry-run sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \

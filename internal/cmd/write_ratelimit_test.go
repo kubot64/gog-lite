@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kubot64/gog-lite/internal/config"
 )
 
 func TestWriteCommands_RateLimitedBeforeAPI(t *testing.T) {
@@ -22,14 +20,8 @@ func TestWriteCommands_RateLimitedBeforeAPI(t *testing.T) {
 	writeRateLimitPerMinute = 1
 	t.Cleanup(func() { writeRateLimitPerMinute = orig })
 
-	// A non-empty override replaces the default approval list, so these
-	// calls reach the rate limiter instead of stopping at approval.
-	if err := config.WritePolicy(config.PolicyFile{
-		RequireApprovalActions: []string{"unused.action"},
-	}); err != nil {
-		t.Fatalf("WritePolicy: %v", err)
-	}
-
+	// The limiter runs before approval, so a missing token on a default
+	// destructive action still consumes the per-action slot.
 	cmds := []struct {
 		name string
 		run  func() error
@@ -181,12 +173,6 @@ func TestSheetsUpdateCmd_DryRunDoesNotConsumeRateLimit(t *testing.T) {
 	orig := writeRateLimitPerMinute
 	writeRateLimitPerMinute = 1
 	t.Cleanup(func() { writeRateLimitPerMinute = orig })
-
-	if err := config.WritePolicy(config.PolicyFile{
-		RequireApprovalActions: []string{"unused.action"},
-	}); err != nil {
-		t.Fatalf("WritePolicy: %v", err)
-	}
 
 	cmd := &SheetsUpdateCmd{
 		Account:       "a@example.com",
