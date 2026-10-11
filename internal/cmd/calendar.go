@@ -248,6 +248,10 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
+	if err := enforceWriteRateLimit("calendar.create"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
@@ -338,6 +342,10 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 				"location":    c.Location,
 			},
 		})
+	}
+
+	if err := enforceWriteRateLimit("calendar.update"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
@@ -442,6 +450,10 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 				"calendar_id": c.CalendarID,
 			},
 		})
+	}
+
+	if err := enforceWriteRateLimit("calendar.delete"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)

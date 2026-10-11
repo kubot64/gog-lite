@@ -192,6 +192,10 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
+	if err := enforceWriteRateLimit("slides.write"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	svc, err := googleapi.NewSlidesWrite(ctx, c.Account)
 	if err != nil {
 		return slidesAuthError(err)
