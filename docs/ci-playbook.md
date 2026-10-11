@@ -48,6 +48,14 @@ CI 失敗時の調査・対処手順。
   - 呼び出し経路なしの検出は既定の symbol スキャンでは失敗にしない。`-show verbose` で残件を確認する。
 - 同じジョブが PR / push に加えて、毎日 02:00 UTC の `schedule` でも走る。
 
+### Action Ref Check
+
+- 症状: `rg: command not found` のあと「All external action references are resolvable…」と出て成功する。または `failed to extract action references` / `no action references found` で失敗する。
+- 対処:
+  - 参照の抜き出しは awk と sort で行う。`rg` は要らない。
+  - 抜き出しコマンドが失敗したとき、および `uses:` が 0 件のときは成功にしない。途中まで読めても、コマンドが失敗したらその結果では成功にしない。
+  - 外部アクションは 40 桁または 64 桁のコミット SHA にピンし、`# v6` のようなコメントを付ける。コメントがそのコミットのタグ（`v6` または `v6.0.2`）と一致しないと失敗する。タグやブランチ名だけの ref、バージョンコメントの欠落も失敗する。
+
 ### 時刻・入力境界
 
 - 症状: RFC3339 判定、stdin 上限テストが不安定。
@@ -108,7 +116,7 @@ github/codeql-action/*@*
 
 YAML の SHA ピンは外さない。**Require actions to be pinned to a full-length commit SHA** が有効なら、そのままでよい。
 
-`.github/dependabot.yml` の `github-actions` は `groups` でまとめ、アクション更新を 1 本の PR にする。`check-action-refs.sh` は SHA が解決できることに加え、`# v6` のようなコメントがそのコミットのタグ（`v6` または `v6.0.2`）と一致するかを確認する。
+`.github/dependabot.yml` の `github-actions` は `groups` でまとめ、アクション更新を 1 本の PR にする。`check-action-refs.sh` は `uses:` を awk で抜き出す（`rg` は使わない）。抜き出し失敗と参照 0 件は失敗にする。外部アクションはフル長のコミット SHA であり、SHA が解決できることに加え、`# v6` のようなコメントがそのコミットのタグ（`v6` または `v6.0.2`）と一致するかを確認する。
 
 ## マージ判定
 
