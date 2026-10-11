@@ -119,7 +119,7 @@ type SheetsUpdateCmd struct {
 	ValuesStdin   bool   `name:"values-stdin" help:"Read values JSON from stdin."`
 	ValueInput    string `name:"value-input" default:"RAW" enum:"RAW,USER_ENTERED" help:"How Sheets interprets values. RAW (default) stores text as-is. USER_ENTERED parses formulas and dates."`
 	ConfirmWrite  bool   `name:"confirm-write" help:"Required confirmation flag for overwriting cell values."`
-	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -345,9 +345,7 @@ func toInterfaceSlice(rows [][]any) [][]interface{} {
 	result := make([][]interface{}, len(rows))
 	for i, row := range rows {
 		irow := make([]interface{}, len(row))
-		for j, v := range row {
-			irow[j] = v
-		}
+		copy(irow, row)
 		result[i] = irow
 	}
 	return result

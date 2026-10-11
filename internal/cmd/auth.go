@@ -18,12 +18,12 @@ import (
 
 // AuthCmd groups auth subcommands.
 type AuthCmd struct {
-	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow)."`
+	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow). On Linux and macOS, step 1 reuses a saved auth URL only while this program still serves the callback port. On Windows the port is not held; copy the address-bar URL, and a saved URL is reused only while that port is free."`
 	List            AuthListCmd            `cmd:"" help:"List authenticated accounts."`
 	Remove          AuthRemoveCmd          `cmd:"" help:"Remove a stored account token."`
 	Preflight       AuthPreflightCmd       `cmd:"" help:"Check readiness for AI-agent operations."`
 	ApprovalToken   AuthApprovalTokenCmd   `cmd:"" help:"Issue one-time approval token for dangerous actions."`
-	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token, then delete the local token and block the account."`
+	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token and block the account. Delete the local token only when revoke is confirmed. An address already in blocked_accounts is not added again."`
 }
 
 // AuthLoginCmd implements the 2-step headless OAuth flow.
@@ -32,7 +32,7 @@ type AuthCmd struct {
 // Step 2 (--auth-url set): exchanges code, stores token, prints {"stored": true, ...}
 type AuthLoginCmd struct {
 	Account      string `name:"account" required:"" short:"a" help:"Google account email."`
-	Services     string `name:"services" default:"gmail,calendar,docs" help:"Comma-separated services to authorize (gmail,calendar,docs,drive)."`
+	Services     string `name:"services" default:"gmail,calendar,docs" help:"Comma-separated services to authorize (gmail, calendar, docs, drive, sheets, slides)."`
 	AuthURL      string `name:"auth-url" help:"Redirect URL from browser (step 2)."`
 	ForceConsent bool   `name:"force-consent" help:"Force Google consent screen (re-requests refresh token)."`
 }
@@ -68,7 +68,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 	if strings.TrimSpace(c.AuthURL) != "" {
 		result, err := googleauth.Step2(ctx, creds, opts, c.AuthURL)
 		if err != nil {
-			return output.WriteError(output.ExitCodeError, "auth_exchange_error", err.Error())
+			return output.WriteError(output.ExitCodeError, "auth_exchange_error", authExchangeErrorMessage(err))
 		}
 		tokenEmail := normalizeEmail(result.Email)
 		if tokenEmail == "" || tokenEmail != account {
@@ -382,20 +382,16 @@ func (c *AuthEmergencyRevokeCmd) Run(ctx context.Context, root *RootFlags) error
 		return finishEmergencyRevoke(store, root, account, false)
 	case errors.Is(err, googleauth.ErrAlreadyRevoked):
 		return finishEmergencyRevoke(store, root, account, true)
-	case errors.Is(err, googleauth.ErrRevokeUnavailable), errors.Is(err, googleauth.ErrEmptyRefreshToken):
-		if err := blockAccount(account); err != nil {
-			return err
+	default:
+		// Revoke was not confirmed (transport error, 5xx, or a refusal other than
+		// invalid_token). Block locally anyway and keep the refresh token for retry.
+		if blockErr := blockAccount(account); blockErr != nil {
+			return blockErr
 		}
 		return output.WriteError(
 			output.ExitCodeError,
 			"remote_revoke_failed",
 			fmt.Sprintf("リモート失効に失敗した。ローカルではブロック済み。トークンは残っているので再実行する: %s", err.Error()),
-		)
-	default:
-		return output.WriteError(
-			output.ExitCodeError,
-			"remote_revoke_failed",
-			fmt.Sprintf("リモート失効に失敗した: %s", err.Error()),
 		)
 	}
 }
@@ -424,9 +420,17 @@ func finishEmergencyRevoke(store *secrets.Store, root *RootFlags, account string
 }
 
 func blockAccount(account string) error {
+	account = normalizeEmail(account)
 	p, err := config.ReadPolicy()
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	// ReadPolicy already stores normalized addresses. Skip the write so a retry
+	// does not duplicate the entry or rewrite policy.json.
+	for _, blocked := range p.BlockedAccounts {
+		if blocked == account {
+			return nil
+		}
 	}
 	p.BlockedAccounts = append(p.BlockedAccounts, account)
 	if err := config.WritePolicy(p); err != nil {

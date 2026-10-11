@@ -455,3 +455,29 @@ func TestExecute_InvalidSheetsValueInput(t *testing.T) {
 		t.Fatalf("code = %q, want invalid_arguments (kong enum rejects the flag before Run)", code)
 	}
 }
+
+func TestToInterfaceSliceCopiesRows(t *testing.T) {
+	rows := [][]any{
+		{"a", 1},
+		nil,
+		{},
+	}
+	got := toInterfaceSlice(rows)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	if len(got[0]) != 2 || got[0][0] != "a" || got[0][1] != 1 {
+		t.Fatalf("row 0 = %#v", got[0])
+	}
+	if got[1] == nil || len(got[1]) != 0 {
+		t.Fatalf("nil row = %#v, want empty non-nil slice", got[1])
+	}
+	if got[2] == nil || len(got[2]) != 0 {
+		t.Fatalf("empty row = %#v, want empty non-nil slice", got[2])
+	}
+
+	rows[0][0] = "changed"
+	if got[0][0] != "a" {
+		t.Fatalf("row 0 shares the input backing array: %#v", got[0])
+	}
+}

@@ -12,10 +12,18 @@ import (
 )
 
 const (
-	maxRetries429      = 3
-	maxRetries5xx      = 1
-	rateLimitBaseDelay = 1 * time.Second
-	serverErrorDelay   = 1 * time.Second
+	maxRetries429        = 3
+	maxRetries5xx        = 1
+	rateLimitBaseDelay   = 1 * time.Second
+	serverErrorDelay     = 1 * time.Second
+	maxRetryAfterSeconds = 30
+	// maxRetryAfter caps a Retry-After delay. A large delta-seconds value or a
+	// far HTTP-date must not stall the retry loop. The API client timeout is
+	// defaultHTTPTimeout, also 30s. RoundTrip skips a wait that would meet or
+	// pass the request deadline, so the retry is not started after the client
+	// has already timed out. The cap still applies when the context has no
+	// deadline, or a longer one.
+	maxRetryAfter = maxRetryAfterSeconds * time.Second
 )
 
 // RetryTransport wraps an http.RoundTripper with retry logic for 429 and 5xx.
@@ -78,6 +86,22 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 
 			delay := t.calculateBackoff(retries429, resp)
+			if delay > 0 {
+				if err := req.Context().Err(); err != nil {
+					drainAndClose(resp.Body)
+
+					return nil, fmt.Errorf("sleep interrupted: %w", err)
+				}
+				// Waiting out a Retry-After that meets the deadline leaves no
+				// time for the retry. Return this 429 so the caller fails
+				// immediately. The code stays the command API error:
+				// rate_limited is the local write limiter, and that path
+				// keeps the approval token.
+				if !retryDelayFits(req.Context(), delay) {
+					return resp, nil
+				}
+			}
+
 			drainAndClose(resp.Body)
 
 			if err := t.sleep(req.Context(), delay); err != nil {
@@ -116,6 +140,10 @@ func (t *RetryTransport) calculateBackoff(attempt int, resp *http.Response) time
 				return 0
 			}
 
+			if seconds > maxRetryAfterSeconds {
+				return maxRetryAfter
+			}
+
 			return time.Duration(seconds) * time.Second
 		}
 
@@ -123,6 +151,10 @@ func (t *RetryTransport) calculateBackoff(attempt int, resp *http.Response) time
 			d := time.Until(parsed)
 			if d < 0 {
 				return 0
+			}
+
+			if d > maxRetryAfter {
+				return maxRetryAfter
 			}
 
 			return d
@@ -146,6 +178,22 @@ func (t *RetryTransport) calculateBackoff(attempt int, resp *http.Response) time
 	jitter := time.Duration(rand.Int64N(int64(jitterRange))) //nolint:gosec
 
 	return baseDelay + jitter
+}
+
+// retryDelayFits reports whether delay can finish before ctx's deadline.
+// A delay of exactly the remaining time does not fit: the retry would start
+// as the client times out. No deadline means the wait is allowed.
+func retryDelayFits(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return true
+	}
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+
+	return time.Until(deadline) > delay
 }
 
 func (t *RetryTransport) sleep(ctx context.Context, d time.Duration) error {

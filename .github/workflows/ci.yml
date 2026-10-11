@@ -49,6 +49,17 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
       - run: go vet ./...
+      - name: Vet and compile tests for Windows
+        run: |
+          set -euo pipefail
+          export GOOS=windows
+          export GOARCH=amd64
+          export CGO_ENABLED=0
+          go vet ./...
+          mapfile -t pkgs < <(go list ./...)
+          for pkg in "${pkgs[@]}"; do
+            go test -c -o /dev/null "$pkg"
+          done
       - run: go test ./...
         env:
           GOG_LITE_KEYRING_BACKEND: file
@@ -61,9 +72,22 @@ jobs:
           path: /tmp/gog-lite-test-*.log
           if-no-files-found: ignore
 
+  staticcheck:
+    name: staticcheck
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+      - name: Run staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+  # PR and push keep the merge-time gate from #68. The 02:00 UTC schedule runs the
+  # same scan so a new vulnerability database entry is not waiting on the next PR.
   govulncheck:
     name: govulncheck
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -120,6 +144,32 @@ jobs:
           d = json.load(open('$err_json'))
           assert d['code'] == 'auth_required', f\"got code {d['code']}\"
           print('missing-token-auth-required: OK')
+          "
+      - name: auth login exchange failure keeps auth_exchange_error
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth login --account test@example.com --services gmail \
+            --auth-url "http://127.0.0.1:9/oauth2/callback?code=leak-marker-9f3c2a&state=missing-state" \
+            >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 1 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_exchange_error', f\"got code {d['code']}\"
+          assert 'state mismatch' in d['error'], d['error']
+          assert 'token endpoint request failed' not in d['error'], d['error']
+          assert 'leak-marker-9f3c2a' not in d['error'], d['error']
+          print('auth-login-exchange-error: OK')
           "
       - name: confirm-delete required for calendar delete
         run: |
@@ -219,6 +269,15 @@ jobs:
           check_policy_denied \
             "/tmp/gog-lite docs export --account test@example.com --doc-id x --format pdf --output /tmp/out.pdf" \
             "docs.export"
+          check_policy_denied \
+            "/tmp/gog-lite sheets update --account test@example.com --spreadsheet-id x --range 'Sheet1!A1' --values '[[\"a\"]]'" \
+            "sheets.update"
+          check_policy_denied \
+            "/tmp/gog-lite sheets append --account test@example.com --spreadsheet-id x --range Sheet1 --values '[[\"a\"]]'" \
+            "sheets.append"
+          check_policy_denied \
+            "/tmp/gog-lite slides write --account test@example.com --presentation-id x --find a --replace b" \
+            "slides.write"
       - name: approval-token required when missing
         run: |
           HOME=$(mktemp -d)
@@ -247,37 +306,87 @@ jobs:
           export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
-          echo "issued token"
-          # First use: token is consumed; command then fails at auth (no real credentials).
+          token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+          token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token_hash}.json"
+          [ ! -e "$XDG_CONFIG_HOME/gog-lite/approvals/${token}.json" ] || { echo "approval token filename is the token"; exit 1; }
+          [ -s "$token_file" ] || { echo "approval token file was not written"; exit 1; }
+          python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d.get('used') is False, {'used': d.get('used')}
+          print('approval-token-issued-unused: OK')
+          " "$token_file"
+          # First use consumes the token, then fails at auth (no real credentials).
+          first_out=$(mktemp)
+          first_err=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-            --approval-token "$token" 2>/dev/null && true || true
-          # Second use: token already used → approval_required.
-          check_reuse() {
-            out_json=$(mktemp)
-            err_json=$(mktemp)
-            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-              --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
-            echo "exit code: $code"
-            [ "$code" -ne 0 ] || return 1
-            [ -s "$err_json" ] || return 1
-            python3 -c "
+            --approval-token="$token" >"$first_out" 2>"$first_err" && first_code=0 || first_code=$?
+          echo "first use exit code: $first_code"
+          echo "first use stderr:"
+          cat "$first_err"
+          python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d.get('used') is True, {'used': d.get('used')}
+          print('approval-token-marked-used: OK')
+          " "$token_file" || {
+            echo "approval token file was not marked used"
+            echo "first use stdout:"
+            cat "$first_out"
+            exit 1
+          }
+          # Second use: the stored token is already used → approval_required.
+          # No retry. A mismatch prints this stderr instead of sleeping over it.
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+            --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "reuse exit code: $code"
+          echo "reuse stderr:"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
           import json
           d = json.load(open('$err_json'))
-          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          assert d['code'] == 'approval_required', d
           print('approval-token-reuse: OK')
-            "
-          }
-
-          ok=0
-          for i in 1 2; do
-            if check_reuse; then
-              ok=1
-              break
-            fi
-            echo "retry approval-token reuse check ($i)"
-            sleep 1
-          done
-          [ "$ok" -eq 1 ] || { echo "approval-token reuse check failed after retry"; exit 1; }
+          "
+      - name: approval-token space-separated value is accepted
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          [ -n "$token" ] || { echo "approval token was empty"; exit 1; }
+          case "$token" in
+            -*) echo "issued approval token starts with a hyphen"; exit 1 ;;
+          esac
+          token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+          token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token_hash}.json"
+          [ -s "$token_file" ] || { echo "approval token file was not written"; exit 1; }
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          # Separate argv from the flag. A value that starts with '-' is parsed as a flag.
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+            --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json, sys
+          err = json.load(open(sys.argv[1]))
+          assert err.get('code') != 'invalid_arguments', err.get('code')
+          assert err.get('code') == 'auth_required', err.get('code')
+          state = json.load(open(sys.argv[2]))
+          assert state.get('used') is True, {'used': state.get('used')}
+          print('approval-token-space-separated: OK')
+          " "$err_json" "$token_file"
       - name: dry-run skips confirm and approval-token
         run: |
           HOME=$(mktemp -d)
@@ -371,6 +480,136 @@ jobs:
           assert d['code'] == 'invalid_arguments', f\"got code {d['code']}\"
           print('sheets-update-invalid-value-input: OK')
           "
+
+      - name: docs write --replace skips confirm and approval on dry-run
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "missing confirm exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 1 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'replace_requires_confirmation', f\"got code {d['code']}\"
+          print('docs-write-replace-confirm: OK')
+          "
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace --confirm-replace >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "missing token exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('docs-write-replace-approval: OK')
+          "
+          out=$(/tmp/gog-lite --dry-run docs write --account test@example.com --doc-id x --content hello --replace)
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'docs.write', d
+          params = d.get('params') or {}
+          assert params.get('replace') is True, d
+          assert params.get('confirm_replace') is False, d
+          assert params.get('content_length') == 5, d
+          print('docs-write-replace-dry-run: OK')
+          " "$out"
+          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action docs.write.replace --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          /tmp/gog-lite --dry-run docs write --account test@example.com --doc-id x --content hello --replace \
+            --confirm-replace --approval-token="$token" >/dev/null || {
+            echo "dry-run with approval token failed"
+            exit 1
+          }
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace \
+            --confirm-replace --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "token still valid exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 2 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_required', f\"got code {d['code']}\"
+          print('docs-write-dry-run-keeps-token: OK')
+          "
+          err_json=$(mktemp)
+          /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace \
+            --confirm-replace --approval-token="$token" >/dev/null 2>"$err_json" && code=0 || code=$?
+          echo "token consumed exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('docs-write-token-consumed: OK')
+          "
+          allowed=$(mktemp -d)
+          outside=$(mktemp -d)
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite --dry-run --allowed-output-dir "$allowed" docs export \
+            --account test@example.com --doc-id x --format pdf --output "$outside/out.pdf" \
+            >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "export dry-run outside exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'output_not_allowed', f\"got code {d['code']}\"
+          print('docs-export-dry-run-output-not-allowed: OK')
+          "
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite --allowed-output-dir "$allowed" docs export \
+            --account test@example.com --doc-id x --format pdf --output "$outside/out.pdf" \
+            >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "export outside exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 4 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'output_not_allowed', f\"got code {d['code']}\"
+          print('docs-export-output-not-allowed: OK')
+          "
+          out=$(/tmp/gog-lite --dry-run --allowed-output-dir "$allowed" docs export \
+            --account test@example.com --doc-id x --format pdf --output "$allowed/out.pdf")
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'docs.export', d
+          print('docs-export-dry-run-allowed: OK')
+          " "$out"
 
       - name: audit log hmac chain rejects recomputation
         run: |
@@ -515,6 +754,155 @@ jobs:
           assert entry.get('action') == 'auth.emergency_revoke', entry
           assert entry.get('dry_run') is True, entry
           print('emergency-revoke-dry-run: OK')
+          "
+      - name: emergency-revoke blocks on invalid_client and keeps the token
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          home=$(mktemp -d)
+          hosts_mark="gog-lite-ci-emergency-revoke"
+          seed_dir="${GITHUB_WORKSPACE}/cmd/ci-seed-token"
+          server_pid=""
+          restore() {
+            sudo sed -i "/${hosts_mark}/d" /etc/hosts || true
+            if [ -n "${server_pid}" ]; then
+              sudo kill "${server_pid}" 2>/dev/null || true
+              wait "${server_pid}" 2>/dev/null || true
+            fi
+            if [ -n "${work}" ]; then
+              sudo pkill -f "${work}/server.py" 2>/dev/null || true
+            fi
+            rm -rf "${seed_dir}"
+          }
+          trap restore EXIT
+
+          openssl req -x509 -newkey rsa:2048 -keyout "$work/ca.key" -out "$work/ca.crt" -days 1 -nodes -subj "/CN=gog-lite-test-ca" >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -keyout "$work/server.key" -out "$work/server.csr" -nodes -subj "/CN=oauth2.googleapis.com" >/dev/null 2>&1
+          printf 'subjectAltName=DNS:oauth2.googleapis.com\n' > "$work/san.cnf"
+          openssl x509 -req -in "$work/server.csr" -CA "$work/ca.crt" -CAkey "$work/ca.key" -CAcreateserial -out "$work/server.crt" -days 1 -extfile "$work/san.cnf" >/dev/null 2>&1
+
+          cat > "$work/server.py" << 'PY'
+          import http.server, ssl, sys
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  length = int(self.headers.get("Content-Length", "0") or "0")
+                  _ = self.rfile.read(length)
+                  body = b'{"error":"invalid_client"}'
+                  self.send_response(400)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def log_message(self, fmt, *args):
+                  sys.stderr.write("revoke-stub " + (fmt % args) + "\n")
+          server = http.server.HTTPServer(("127.0.0.1", 443), Handler)
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain(sys.argv[1], sys.argv[2])
+          server.socket = ctx.wrap_socket(server.socket, server_side=True)
+          server.serve_forever()
+          PY
+
+          # internal/secrets is importable only from this module.
+          mkdir -p "$seed_dir"
+          cat > "$seed_dir/main.go" << 'EOF'
+          package main
+
+          import (
+          	"fmt"
+          	"os"
+
+          	"github.com/kubot64/gog-lite/internal/secrets"
+          )
+
+          func main() {
+          	store, err := secrets.OpenDefault()
+          	if err != nil {
+          		fmt.Fprintf(os.Stderr, "open: %v\n", err)
+          		os.Exit(1)
+          	}
+          	if err := store.SetToken(os.Args[1], secrets.Token{RefreshToken: os.Args[2]}); err != nil {
+          		fmt.Fprintf(os.Stderr, "set: %v\n", err)
+          		os.Exit(1)
+          	}
+          }
+          EOF
+
+          export HOME="$home"
+          export XDG_CONFIG_HOME="$home"
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy || true
+          ( cd "${GITHUB_WORKSPACE}" && go run ./cmd/ci-seed-token test@example.com dummy-refresh-token )
+
+          echo "127.0.0.1 oauth2.googleapis.com # ${hosts_mark}" | sudo tee -a /etc/hosts >/dev/null
+          # Redirect inside sudo so the log is opened as root (shellcheck SC2024).
+          sudo sh -c 'umask 022; exec python3 "$1" "$2" "$3" >"$4" 2>&1' sh \
+            "$work/server.py" "$work/server.crt" "$work/server.key" "$work/server.log" &
+          server_pid=$!
+          ready=0
+          for _ in $(seq 1 50); do
+            if python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",443),1); s.close()' 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 0.1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "revoke stub did not start"
+            sudo cat "$work/server.log" || true
+            exit 1
+          fi
+
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          SSL_CERT_FILE="$work/ca.crt" /tmp/gog-lite auth emergency-revoke --account test@example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          if [ "$code" -ne 1 ]; then
+            echo "server log:"
+            sudo cat "$work/server.log" || true
+            exit 1
+          fi
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json, os
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'remote_revoke_failed', d
+          err = d.get('error') or ''
+          assert 'リモート失効に失敗した' in err, d
+          assert 'ブロック済み' in err, d
+          assert '再実行' in err, d
+          assert 'invalid_client' in err, d
+          assert 'dummy-refresh-token' not in err, d
+          policy = json.load(open(os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'policy.json')))
+          blocked = policy.get('blocked_accounts') or []
+          assert blocked == ['test@example.com'], blocked
+          print('emergency-revoke-invalid-client: OK')
+          "
+          policy_path="$XDG_CONFIG_HOME/gog-lite/policy.json"
+          policy_before=$(mktemp)
+          cp "$policy_path" "$policy_before"
+          SSL_CERT_FILE="$work/ca.crt" /tmp/gog-lite auth emergency-revoke --account Test@Example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "second exit code: $code"
+          echo "second stderr:"
+          cat "$err_json"
+          [ "$code" -eq 1 ]
+          [ ! -s "$out_json" ]
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'remote_revoke_failed', d
+          assert 'ブロック済み' in (d.get('error') or ''), d
+          before = open('$policy_before', 'rb').read()
+          after = open('$policy_path', 'rb').read()
+          assert before == after, (before, after)
+          policy = json.load(open('$policy_path'))
+          assert policy.get('blocked_accounts') == ['test@example.com'], policy
+          print('emergency-revoke-invalid-client-token-kept: OK')
           "
       - name: require_approval_actions keeps default destructive actions
         run: |
@@ -695,6 +1083,427 @@ jobs:
           print('file-keyring-no-dbus-dry-run: OK')
           "
 
+      - name: all-pages is capped by max-pages
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          check_help() {
+            label="$1"
+            shift
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "$label help exit code: $code"
+            cat "$err_json"
+            [ "$code" -eq 0 ]
+            [ ! -s "$err_json" ]
+            [ -s "$out_json" ] || { echo "expected JSON help on stdout"; exit 1; }
+            python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          help_text = d.get('help') or ''
+          assert '--max-pages' in help_text, help_text
+          assert '1-50' in help_text, help_text
+          print(sys.argv[2] + '-help-max-pages: OK')
+            " "$out_json" "$label"
+          }
+          check_help gmail /tmp/gog-lite gmail search --help
+          check_help calendar /tmp/gog-lite calendar list --help
+          check_invalid() {
+            label="$1"
+            shift
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "$label exit code: $code"
+            cat "$err_json"
+            [ "$code" -eq 1 ]
+            [ ! -s "$out_json" ]
+            [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+            python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d['code'] == 'invalid_arguments', d
+          assert '1 and 50' in d.get('error', ''), d
+          print(sys.argv[2] + ': OK')
+            " "$err_json" "$label"
+          }
+          check_invalid gmail-max-pages-zero \
+            /tmp/gog-lite gmail search --account test@example.com --query x --max-pages=0
+          check_invalid gmail-max-pages-over \
+            /tmp/gog-lite gmail search --account test@example.com --query x --all-pages --max-pages=51
+          check_invalid calendar-max-pages-zero \
+            /tmp/gog-lite calendar list --account test@example.com --max-pages=0
+          check_invalid calendar-max-pages-over \
+            /tmp/gog-lite calendar list --account test@example.com --all-pages --max-pages=51
+          python3 -c "
+          import os
+          root = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'ratelimit')
+          names = []
+          if os.path.isdir(root):
+              names = os.listdir(root)
+          assert names == [], names
+          print('invalid-max-pages-skips-ratelimit: OK')
+          "
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          check_reaches_auth() {
+            label="$1"
+            action="$2"
+            shift 2
+            out_json=$(mktemp)
+            err_json=$(mktemp)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            echo "$label exit code: $code"
+            cat "$err_json"
+            [ "$code" -eq 2 ]
+            [ ! -s "$out_json" ]
+            [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+            python3 -c "
+          import json, os, sys
+          d = json.load(open(sys.argv[1]))
+          assert d['code'] == 'auth_required', d
+          path = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'ratelimit', sys.argv[2] + '.json')
+          assert os.path.isfile(path), path
+          print(sys.argv[3] + ': OK')
+            " "$err_json" "$action" "$label"
+          }
+          check_reaches_auth gmail-all-pages-default gmail.search \
+            /tmp/gog-lite gmail search --account test@example.com --query x --all-pages
+          check_reaches_auth calendar-max-pages-10 calendar.list \
+            /tmp/gog-lite calendar list --account test@example.com --all-pages --max-pages=10
+
+      - name: aged live lock is not stolen
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+
+          hold_live_lock() {
+            local lock="$1"
+            mkdir -p "$(dirname "$lock")"
+            printf '%s\n' "$$" > "$lock"
+            touch -d '2 hours ago' "$lock"
+          }
+
+          expect_lock_timeout() {
+            local want_code="$1"
+            local label="$2"
+            shift 2
+            local err_json out_json start end elapsed code
+            err_json=$(mktemp)
+            out_json=$(mktemp)
+            start=$(date +%s)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            end=$(date +%s)
+            elapsed=$((end - start))
+            echo "$label exit code: $code elapsed: ${elapsed}s"
+            cat "$err_json"
+            [ "$code" -ne 0 ]
+            [ ! -s "$out_json" ]
+            [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+            [ "$elapsed" -ge 3 ] || { echo "$label returned in ${elapsed}s; a live lock was taken"; exit 1; }
+            [ "$elapsed" -le 20 ] || { echo "$label took ${elapsed}s; expected the 5s acquire timeout"; exit 1; }
+            python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d['code'] == sys.argv[2], d
+          err = d.get('error', '')
+          assert 'acquire lock' in err and 'timeout' in err, d
+          print(sys.argv[3] + ': OK')
+            " "$err_json" "$want_code" "$label"
+          }
+
+          audit_lock="$HOME/gog-lite/audit.log.lock"
+          hold_live_lock "$audit_lock"
+          expect_lock_timeout audit_error aged-audit-lock \
+            /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x
+          [ -e "$audit_lock" ]
+          sleep 30 &
+          dead=$!
+          kill "$dead" || true
+          wait "$dead" || true
+          printf '%s\n' "$dead" > "$audit_lock"
+          touch "$audit_lock"
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          start=$(date +%s)
+          /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x >"$out_json" 2>"$err_json"
+          end=$(date +%s)
+          elapsed=$((end - start))
+          echo "dead audit lock elapsed: ${elapsed}s"
+          cat "$err_json"
+          [ "$elapsed" -le 3 ]
+          [ ! -s "$err_json" ]
+          python3 -c "
+          import json
+          d = json.load(open('$out_json'))
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'calendar.delete', d
+          print('dead-audit-lock-replaced: OK')
+          "
+
+          rate_lock="$HOME/gog-lite/ratelimit/calendar.delete.json.lock"
+          hold_live_lock "$rate_lock"
+          expect_lock_timeout rate_limited aged-rate-lock \
+            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete
+          [ -e "$rate_lock" ]
+          rm -f "$rate_lock"
+
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m >"$out_json" 2>"$err_json"
+          echo "issue token stderr:"
+          cat "$err_json"
+          [ ! -s "$err_json" ]
+          token=$(python3 -c "import json; print(json.load(open('$out_json'))['token'])")
+          token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+          token_path="$HOME/gog-lite/approvals/${token_hash}.json"
+          token_lock="${token_path}.lock"
+          hold_live_lock "$token_lock"
+          expect_lock_timeout approval_required aged-approval-lock \
+            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token="$token"
+          python3 -c "
+          import json
+          st = json.load(open('$token_path'))
+          assert st.get('used') is False, st
+          print('approval-lock-timeout-keeps-token: OK')
+          "
+          rm -f "$token_lock"
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "consume after release, exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 2 ]
+          [ ! -s "$out_json" ]
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_required', d
+          st = json.load(open('$token_path'))
+          assert st.get('used') is True, st
+          print('approval-consumed-after-lock-release: OK')
+          "
+
+      - name: one waiter takes a dead audit lock
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+
+          audit_lock="$HOME/gog-lite/audit.log.lock"
+          mkdir -p "$(dirname "$audit_lock")"
+          pid_max=$(cat /proc/sys/kernel/pid_max)
+          printf '%s\n' "$pid_max" > "$audit_lock"
+
+          tmp=$(mktemp -d)
+          pids=()
+          for i in 1 2 3 4; do
+            /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id "e$i" \
+              >"$tmp/out$i" 2>"$tmp/err$i" &
+            pids+=("$!")
+          done
+          fail=0
+          for i in 1 2 3 4; do
+            if ! wait "${pids[$((i - 1))]}"; then
+              echo "command $i failed"
+              cat "$tmp/err$i"
+              fail=1
+            fi
+            if [ -s "$tmp/err$i" ]; then
+              echo "command $i wrote stderr"
+              cat "$tmp/err$i"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+          python3 -c "
+          import json, os, pathlib
+          tmp = pathlib.Path('$tmp')
+          for i in range(1, 5):
+              d = json.loads((tmp / f'out{i}').read_text())
+              assert d.get('dry_run') is True, d
+              assert d.get('action') == 'calendar.delete', d
+          log = pathlib.Path(os.environ['HOME']) / 'gog-lite' / 'audit.log'
+          lines = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+          assert len(lines) == 4, lines
+          prev = ''
+          for i, entry in enumerate(lines):
+              got = entry.get('prev_hash', '')
+              assert got == prev, (i, got, prev, lines)
+              prev = entry['hash']
+          print('concurrent-dead-lock: OK')
+          "
+      - name: auth login reuses callback state while the holder answers
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          trap 'pkill -f "/tmp/gog-lite oauth-callback-hold" >/dev/null 2>&1 || true' EXIT
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth login --account test@example.com --services gmail >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          [ -s "$out_json" ]
+          first_state=$(mktemp)
+          first_redirect=$(mktemp)
+          OUT_JSON="$out_json" STATE_OUT="$first_state" REDIRECT_OUT="$first_redirect" python3 -c '
+          import json, os, urllib.parse
+          d = json.load(open(os.environ["OUT_JSON"]))
+          q = urllib.parse.parse_qs(urllib.parse.urlparse(d["auth_url"]).query)
+          open(os.environ["STATE_OUT"], "w").write(q["state"][0])
+          open(os.environ["REDIRECT_OUT"], "w").write(q["redirect_uri"][0])
+          print("auth-login-step1: OK")
+          '
+          /tmp/gog-lite auth login --account test@example.com --services gmail >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "reuse exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          OUT_JSON="$out_json" STATE_OUT="$first_state" REDIRECT_OUT="$first_redirect" python3 -c '
+          import json, os, urllib.parse
+          d = json.load(open(os.environ["OUT_JSON"]))
+          q = urllib.parse.parse_qs(urllib.parse.urlparse(d["auth_url"]).query)
+          state = open(os.environ["STATE_OUT"]).read()
+          redirect = open(os.environ["REDIRECT_OUT"]).read()
+          assert q["state"][0] == state, (q["state"][0], state)
+          assert q["redirect_uri"][0] == redirect, (q["redirect_uri"][0], redirect)
+          print("auth-login-reuse-holder: OK")
+          '
+      - name: auth login replaces callback state when another process holds the port
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          work=$(mktemp -d)
+          server_pid=""
+          cleanup() {
+            if [ -n "${server_pid}" ]; then
+              kill "${server_pid}" 2>/dev/null || true
+              wait "${server_pid}" 2>/dev/null || true
+            fi
+            pkill -f "/tmp/gog-lite oauth-callback-hold" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cat > "$work/server.py" << 'PY'
+          import sys
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = b"foreign-secret-body"
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/plain")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, fmt, *args):
+                  return
+
+          server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+          sys.stdout.write(str(server.server_address[1]) + "\n")
+          sys.stdout.flush()
+          server.serve_forever()
+          PY
+          python3 "$work/server.py" >"$work/port" &
+          server_pid=$!
+          ready=0
+          for _ in $(seq 1 50); do
+            if [ -s "$work/port" ]; then
+              ready=1
+              break
+            fi
+            sleep 0.1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "foreign callback stub did not start"
+            exit 1
+          fi
+          port=$(tr -d '[:space:]' < "$work/port")
+          PORT="$port" python3 -c '
+          import json, os
+          from datetime import datetime, timezone
+          port = os.environ["PORT"]
+          directory = os.path.join(os.environ["XDG_CONFIG_HOME"], "gog-lite")
+          os.makedirs(directory, mode=0o700, exist_ok=True)
+          path = os.path.join(directory, "oauth-manual-state-foreignportstate.json")
+          doc = {
+              "state": "foreignportstate",
+              "redirect_uri": "http://127.0.0.1:%s/oauth2/callback" % port,
+              "scopes": [
+                  "email",
+                  "https://www.googleapis.com/auth/gmail.compose",
+                  "https://www.googleapis.com/auth/gmail.readonly",
+                  "https://www.googleapis.com/auth/userinfo.email",
+                  "openid",
+              ],
+              "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "code_verifier": "a" * 43,
+          }
+          with open(path, "w", encoding="utf-8") as fh:
+              json.dump(doc, fh)
+              fh.write("\n")
+          os.chmod(path, 0o600)
+          print("seeded", path)
+          '
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth login --account test@example.com --services gmail >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          [ -s "$out_json" ]
+          OUT_JSON="$out_json" PORT="$port" python3 -c '
+          import json, os, urllib.parse
+          raw = open(os.environ["OUT_JSON"]).read()
+          assert "foreign-secret-body" not in raw
+          d = json.loads(raw)
+          q = urllib.parse.parse_qs(urllib.parse.urlparse(d["auth_url"]).query)
+          assert q["state"][0] != "foreignportstate", q["state"][0]
+          redirect = q["redirect_uri"][0]
+          occupied = "http://127.0.0.1:%s/oauth2/callback" % os.environ["PORT"]
+          assert redirect != occupied, redirect
+          old = os.path.join(os.environ["XDG_CONFIG_HOME"], "gog-lite", "oauth-manual-state-foreignportstate.json")
+          assert not os.path.exists(old), old
+          new = os.path.join(os.environ["XDG_CONFIG_HOME"], "gog-lite", "oauth-manual-state-%s.json" % q["state"][0])
+          assert os.path.isfile(new), new
+          print("auth-login-replace-foreign-port: OK")
+          '
+
   security-nightly:
     name: Security Regression (nightly)
     runs-on: ubuntu-latest
@@ -705,7 +1514,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run security regression tests
-        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestReadStdinWithLimit'
+        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestReadStdinWithLimit|TestWithFileLock'
         env:
           GOG_LITE_KEYRING_BACKEND: file
           GOG_LITE_KEYRING_PASSWORD: ci-test-password

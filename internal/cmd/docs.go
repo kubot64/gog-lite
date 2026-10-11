@@ -224,9 +224,6 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
-	if err := ensureWithinAllowedOutputDir(c.Output, root.AllowedOutputDir); err != nil {
-		return output.WriteError(output.ExitCodeError, "output_not_allowed", err.Error())
-	}
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "docs.export",
@@ -295,7 +292,7 @@ type DocsWriteCmd struct {
 	ContentStdin   bool   `name:"content-stdin" help:"Read content from stdin."`
 	Replace        bool   `name:"replace" help:"Replace all existing content."`
 	ConfirmReplace bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
-	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -315,7 +312,7 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
-	if c.Replace && !c.ConfirmReplace {
+	if !dryRun && c.Replace && !c.ConfirmReplace {
 		return output.WriteError(output.ExitCodeError, "replace_requires_confirmation",
 			"--replace requires --confirm-replace to reduce destructive mistakes")
 	}
@@ -432,7 +429,7 @@ type DocsFindReplaceCmd struct {
 	Replace            string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase          bool   `name:"match-case" help:"Case-sensitive matching."`
 	ConfirmFindReplace bool   `name:"confirm-find-replace" help:"Required confirmation flag for find-replace operations."`
-	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {

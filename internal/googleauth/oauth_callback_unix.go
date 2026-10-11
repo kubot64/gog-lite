@@ -7,6 +7,10 @@ import (
 	"syscall"
 )
 
+// callbackHoldSupported is true where the listening socket can be passed to
+// another process. Tests may set it. Production leaves the default.
+var callbackHoldSupported = true
+
 func callbackHolderSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }

@@ -24,7 +24,6 @@ import (
 )
 
 var (
-	errMissingCode         = errors.New("missing authorization code")
 	errMissingState        = errors.New("missing state in redirect URL")
 	errNoCodeInURL         = errors.New("no code found in URL")
 	errNoEmailInToken      = errors.New("no email found in userinfo")
@@ -37,6 +36,49 @@ var (
 
 var oauthEndpoint = google.Endpoint
 var oauthUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo"
+
+// SetOAuthEndpointForTest points the authorization-code exchange at endpoint
+// until restore is called.
+func SetOAuthEndpointForTest(endpoint oauth2.Endpoint) (restore func()) {
+	prev := oauthEndpoint
+	oauthEndpoint = endpoint
+	return func() { oauthEndpoint = prev }
+}
+
+// SetUserInfoEndpointForTest points the OpenID userinfo call at endpoint
+// until restore is called.
+func SetUserInfoEndpointForTest(endpoint string) (restore func()) {
+	prev := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = endpoint
+	return func() { oauthUserInfoEndpoint = prev }
+}
+
+// userInfoStatusError is a non-200 OpenID userinfo response. The body is not
+// retained: it can echo the access token or an error_description.
+type userInfoStatusError struct {
+	status int
+}
+
+func (e *userInfoStatusError) Error() string {
+	return userInfoFailureText(e.status)
+}
+
+const userInfoFailurePrefix = "userinfo request failed"
+
+func userInfoFailureText(status int) string {
+	return fmt.Sprintf("%s (HTTP %d)", userInfoFailurePrefix, status)
+}
+
+// UserInfoFailureMessage is the stderr text for a non-200 userinfo response.
+// It is the fixed sentence plus the HTTP status. The response body is not
+// included. ok is false when err is a different failure.
+func UserInfoFailureMessage(err error) (string, bool) {
+	var statusErr *userInfoStatusError
+	if !errors.As(err, &statusErr) || statusErr == nil {
+		return "", false
+	}
+	return statusErr.Error(), true
+}
 
 const (
 	oauthUserInfoBodyLimit = 1 << 20
@@ -343,8 +385,10 @@ func authURLParams(forceConsent bool) []oauth2.AuthCodeOption {
 }
 
 // Step1 generates the authorization URL. The caller should present auth_url to the user.
-// The user authorizes and is redirected to a loopback URL that won't load.
-// They should copy that URL and pass it to Step2.
+// The user authorizes and is redirected to a loopback URL, then copies that URL
+// into Step2. Linux and macOS keep the port open and show a page that says so.
+// Windows cannot pass the listening socket to another process, so the port is
+// not kept and the page does not load.
 func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOptions) (Step1Result, error) {
 	if len(opts.Scopes) == 0 {
 		return Step1Result{}, errMissingScopes
@@ -352,19 +396,34 @@ func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 
 	scopes := normalizeScopes(opts.Scopes)
 
-	// Reuse existing state if available. The stored verifier must be the one
-	// that produced the original code_challenge.
-	if st, ok, err := loadManualState(scopes); err != nil {
-		return Step1Result{}, err
-	} else if ok {
-		if err := ensureCallbackPort(st.RedirectURI); err != nil {
+	// Reuse an unexpired state when its callback port is still served by this
+	// program. The stored verifier must be the one that produced the original
+	// code_challenge. If another process holds the port, drop that state and
+	// mint a new port, state, and verifier below. Platforms that cannot hold
+	// the port reuse the state when the port is free.
+	for {
+		st, ok, err := loadManualState(scopes)
+		if err != nil {
 			return Step1Result{}, err
 		}
+		if !ok {
+			break
+		}
 
-		return Step1Result{
-			AuthURL:  buildAuthURL(creds, st.RedirectURI, st.State, st.CodeVerifier, scopes, opts.ForceConsent),
-			NextStep: "run again with --auth-url <redirect URL from browser>",
-		}, nil
+		keep, err := ensureCallbackPort(st.RedirectURI)
+		if err != nil {
+			return Step1Result{}, err
+		}
+		if keep {
+			return Step1Result{
+				AuthURL:  buildAuthURL(creds, st.RedirectURI, st.State, st.CodeVerifier, scopes, opts.ForceConsent),
+				NextStep: "run again with --auth-url <redirect URL from browser>",
+			}, nil
+		}
+
+		if err := clearManualState(st.State); err != nil {
+			return Step1Result{}, err
+		}
 	}
 
 	ln, redirectURI, err := listenLoopback(ctx)
@@ -392,7 +451,7 @@ func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step1Result{}, err
 	}
 
-	if err := holdCallbackPort(ln); err != nil {
+	if err := holdCallbackPortOrRelease(ln); err != nil {
 		_ = ln.Close()
 		_ = clearManualState(state)
 		return Step1Result{}, err
@@ -427,9 +486,6 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 	if !ok {
 		return Step2Result{}, fmt.Errorf("state mismatch or expired state; run step 1 again")
 	}
-
-	// Clean up state file after successful load.
-	defer func() { _ = clearManualState(st.State) }()
 
 	// Use stored redirect URI if available (more reliable), otherwise use parsed one.
 	if st.RedirectURI != "" {
@@ -466,6 +522,10 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step2Result{}, fmt.Errorf("extract email from userinfo: %w", err)
 	}
 
+	// Drop the state only after the code exchange and userinfo both succeed.
+	// A network failure leaves the file so the same redirect URL can be retried.
+	_ = clearManualState(st.State)
+
 	return Step2Result{
 		RefreshToken: tok.RefreshToken,
 		Email:        email,
@@ -495,8 +555,9 @@ func emailFromUserInfo(ctx context.Context, tok *oauth2.Token) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, oauthUserInfoBodyLimit))
-		return "", fmt.Errorf("userinfo status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		// Discard the body. It is not part of the error.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, oauthUserInfoBodyLimit))
+		return "", &userInfoStatusError{status: resp.StatusCode}
 	}
 
 	var claims struct {

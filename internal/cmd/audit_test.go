@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -368,6 +370,59 @@ func TestAuditHashChain_ConcurrentAppend(t *testing.T) {
 	}
 	if len(seen) != n {
 		t.Fatalf("unique targets = %d, want %d", len(seen), n)
+	}
+}
+
+func TestAuditHashChain_ConcurrentAppendStealsDeadLock(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("thread-level flock contention is Linux-specific")
+	}
+	path := setupAuditHome(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	pid := unusedPID(t)
+	if err := os.WriteFile(path+".lock", []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+		t.Fatalf("write dead lock: %v", err)
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs <- appendAuditLog(path, auditEntry{
+				Action: "concurrent",
+				Target: fmt.Sprintf("dead-lock-%02d", i),
+			})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent append over dead lock: %v", err)
+		}
+	}
+
+	if err := verifyAuditLog(path); err != nil {
+		t.Fatalf("verify chain after dead lock: %v", err)
+	}
+	entries, err := readAuditEntries(path)
+	if err != nil {
+		t.Fatalf("read entries: %v", err)
+	}
+	if len(entries) != n {
+		t.Fatalf("want %d entries, got %d", n, len(entries))
+	}
+	prev := ""
+	for i, entry := range entries {
+		if entry.PrevHash != prev {
+			t.Fatalf("entry %d prev_hash=%q want %q", i, entry.PrevHash, prev)
+		}
+		prev = entry.Hash
 	}
 }
 

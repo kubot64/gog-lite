@@ -4,7 +4,7 @@ CI 失敗時の調査・対処手順。
 
 ## 基本手順
 
-1. 失敗ジョブを特定する（Unit / CLI Integration / govulncheck / Security nightly）。
+1. 失敗ジョブを特定する（Unit / staticcheck / CLI Integration / govulncheck / Security nightly）。
 2. failed step のログを取得して、最初の失敗行を確認する。
 3. 実装起因かフレークかを切り分ける。
 4. フレーク疑い時は rerun して再現性を確認する。
@@ -26,6 +26,19 @@ CI 失敗時の調査・対処手順。
   - CI で必要な環境変数を確認（`GOG_LITE_CLIENT_ID`, `GOG_LITE_CLIENT_SECRET`）。
   - file backend 利用時は `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定。Linux でセッションバスが無いときもファイルバックエンドになり、パスワードが空だと `keyring_error` になる。環境変数を消しても `/run/user/<uid>/bus` があるとセッションバスとして扱う。
 
+### Windows 向けのコンパイル
+
+- 症状: Unit Tests の「Vet and compile tests for Windows」が落ちる。
+- 対処: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` と、各パッケージの `go test -c` で直す。このステップは既存の Unit Tests ジョブの中にある。必須チェックの名前は増えない。
+- `internal/cmd` のロックは、Windows では flock を使わず、死んだ PID のロックファイルを消して作り直す。生存確認は `OpenProcess` の結果を見る。
+
+### staticcheck
+
+- 症状: `staticcheck` ジョブが非ゼロで終わる。
+- 対処:
+  - 指摘されたチェックをコード側で直す。`-checks` でチェックを除外しない。
+- 実行は `go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...`。既定のチェックで、除外はない。外部アクションは使わない。
+
 ### govulncheck
 
 - 症状: `govulncheck` が終了コード 3 で、呼び出し経路上の脆弱性を報告する。
@@ -33,6 +46,7 @@ CI 失敗時の調査・対処手順。
   - 標準ライブラリなら `go` 行（と必要なら `toolchain`）を修正済みパッチへ上げる。
   - モジュールなら該当依存を修正版へ上げて `go mod tidy` する。
   - 呼び出し経路なしの検出は既定の symbol スキャンでは失敗にしない。`-show verbose` で残件を確認する。
+- 同じジョブが PR / push に加えて、毎日 02:00 UTC の `schedule` でも走る。
 
 ### 時刻・入力境界
 

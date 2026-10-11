@@ -26,26 +26,34 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `stdout` は成功時 JSON のみを返す
 - `stderr` は失敗時 JSON エラーのみを返す
 - 終了コードは `0/1/2/3/4` に固定する
+- 終了コード 2（`auth_required`）は、トークン未保存、Google API の HTTP 401、token endpoint の `invalid_grant` のいずれか。`invalid_grant` の `error` に refresh token や token endpoint の応答本文は含めない
+- token endpoint の `invalid_grant` 以外の失敗は終了コード 1 のまま。`code` は各コマンドの API エラー（`labels_error` など）。`error` は固定文 `token endpoint request failed` と、取り出せた短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`error_description` と応答本文は出さない。コードを取り出せないときも本文は出さず、固定文だけになる
+- `auth login` のコード交換が token endpoint で失敗したときも、`error` は同じ固定文と短い error コードだけ。`code` は `auth_exchange_error`、終了コードは 1 のまま（`invalid_grant` でも `auth_required` にはしない）。`error_description`、`error_uri`、応答本文は出さない。token endpoint 以外の失敗（state の不一致など）は、そのエラーメッセージのまま
+- `auth login` の userinfo が HTTP 200 以外のとき、`code` は `auth_exchange_error`、終了コードは 1。`error` は固定文 `userinfo request failed` と HTTP ステータスコードだけ（例: `userinfo request failed (HTTP 401)`）。応答本文と `error_description` は出さない
+- Google API の HTTP 401 で、応答に message が無く本文だけがあるとき、`error` は `googleapi: got HTTP response code 401` だけで応答本文は出さない。`code` は `auth_required`、終了コードは 2 のまま。パースできた message は従来どおり出す
 - アカウント対象コマンドでは `--account` を必須とする
 - 書き込み系操作は `--dry-run` を標準の事前確認手段とする
 - 破壊的操作は `confirm` と必要に応じて `approval-token` で保護する
 - `sheets update` と `sheets append` はセル値を既定で `RAW` として書き込む。数式や日付として解釈するのは `--value-input USER_ENTERED` を付けたときだけ
 - `sheets update` は `--confirm-write` と、既定では `--approval-token` を要求する。`--dry-run` ではどちらも不要
+- `docs write --replace` は `--confirm-replace` と、既定では `--approval-token` を要求する。`--dry-run` ではどちらも不要で、API は呼ばない
 - `--audit-log` と `--allowed-output-dir` は安全制御として扱う
 - 監査ログの新規行は `hash_alg` が `hmac-sha256`。`hash_alg` の無い既存行は SHA-256 のまま読む
 - 監査ログの追記には keyring が必要。失敗時の code は `audit_error`（終了コード 1）
+- 承認トークンの消費、書き込みレート制限の更新、監査ログの追記は、対象ごとのファイルロックの中で行う。ロックは保持しているプロセスが終了するまで有効である。終了したプロセスのロックを複数が同時に取ろうとしても、取得できるのは一つ。5 秒以内に取れないとき、監査ログは `audit_error`（終了コード 1）、レート制限の更新は `rate_limited`（終了コード 1）、承認トークンの消費は `approval_required`（終了コード 4）。`error` には `acquire lock` と `timeout` が入る。この失敗では承認トークンは消費しない
 - ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` のときと、Linux でセッションバスが無いときの自動選択のどちらも同じ。未設定・空・空白のみは `keyring_error`（終了コード 1）。パスワードはプロンプトしない。セッションバスは `DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う
-- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。通信失敗・5xx・トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
+- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。それ以外の失効失敗（通信失敗・5xx・`invalid_token` 以外の拒否）でも `blocked_accounts` へ追加し、トークンは残す。トークン無しでも `blocked_accounts` へ追加する。正規化したアドレスが既にあれば追加せず、再実行しても policy の内容は変わらない。`--dry-run` は失効リクエストを送らない
+- `gmail search` と `calendar list` の `--all-pages` は `--max-pages`（既定 10、1〜50）ページで止まる。続きがあるときは `nextPageToken` を返し、終了コードは 0。範囲外の `--max-pages` は `invalid_arguments`（終了コード 1）で、レート制限は消費しない
 
 ## Safety Controls
 
 - `--dry-run`: API を呼ばずに実行内容を確認する
 - `--confirm-*`: 削除・置換などの高リスク操作に必要
-- `--approval-token`: 承認必須アクションで使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。`require_approval_actions` はこれに追加し、`exempt_approval_actions` は既定から外す。両方に書いたアクションは承認必須のまま
+- `--approval-token`: 承認必須アクションで使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。`require_approval_actions` はこれに追加し、`exempt_approval_actions` は既定から外す。両方に書いたアクションは承認必須のまま。新しく発行するトークンは `-` で始まらないので、空白区切りで渡せる。`-` で始まる未使用トークンは有効で、`--approval-token=TOKEN` の形で渡す
 - 書き込み系コマンド（calendar の作成・更新・削除、docs の作成・書き込み・置換・export、sheets の update・append、slides write）は action ごとに 1 分あたり 30 回まで。超過時の code は `rate_limited`。`--dry-run` は回数に含めない。`gmail.send` は 1 分あたり 20 回
 - 承認トークンはレート制限を通過したあとに消費する。`rate_limited` のときはトークンは残る
-- `--audit-log`: 書き込み操作を JSONL で記録する。省略時は設定ディレクトリの `audit.log`。追記はファイルロックの中で行い、新規行の `hash` は keyring の HMAC-SHA256（`hash_alg=hmac-sha256`）。末尾ハッシュも keyring に残す。`hash_alg` の無い行は従来の SHA-256 として検証する
-- `--allowed-output-dir`: エクスポートなどのファイル出力先を制限する
+- `--audit-log`: 書き込み操作を JSONL で記録する。省略時は設定ディレクトリの `audit.log`。追記はファイルロックの中で行い、新規行の `hash` は keyring の HMAC-SHA256（`hash_alg=hmac-sha256`）。末尾ハッシュも keyring に残す。`hash_alg` の無い行は従来の SHA-256 として検証する。ロックは保持しているプロセスが終了するまで有効である。終了したプロセスのロックを複数が同時に取ろうとしても、取得できるのは一つ。5 秒以内に取れないときは `audit_error`
+- `--allowed-output-dir`: エクスポートなどのファイル出力先を制限する。外への出力は `output_not_allowed`（終了コード 4）。`--dry-run` でも同じ
 
 ## 実行ポリシー（policy.json）
 
@@ -108,7 +116,7 @@ $HOME/Library/Application Support/gog-lite/credentials.json
 
 External のテスト中アプリでは、OAuth 同意画面の Test users に利用アカウント追加が必要。
 macOS では `GOG_LITE_CLIENT_ID` / `GOG_LITE_CLIENT_SECRET` を Keychain に保存して
-`credentials.json` を削除する運用も可能。
+`credentials.json` を削除する運用も可能。読み出しは `/usr/bin/security` で、PATH 上の `security` は見ない。
 
 ### 2. アカウント認証（2ステップ）
 
@@ -127,10 +135,15 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 
 ブラウザで `auth_url` を開く。認証後、ブラウザのアドレスバーに
 `http://127.0.0.1:PORT/oauth2/callback?code=...&state=...` のような URL が表示される。
-ステップ 1 はそのポートを最大 10 分つかむので、コピーを案内するページが開くことがある。
+Linux と macOS では、ステップ 1 がそのポートを最大 10 分つかむので、コピーを案内するページが開くことがある。
 ページが開かなくても、アドレスバーの URL をコピーする。
+Windows ではリスニングソケットを別プロセスへ渡せない。ポートは保持せず、ステップ 1 は成功する。案内ページは開かない。
 
-ステップ 1 は `auth_url` の JSON を出して終了する。ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。
+ステップ 1 は `auth_url` の JSON を出して終了する。Linux と macOS では、ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じ `--auth-url` でステップ 2 を再実行できる。
+
+ステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。Linux と macOS で使い回すのは、保存したポートで保持プロセスが案内ページを返したときだけである。別プロセスがポートを使っていて確かめられないときは、その状態ファイルを削除し、新しいポート・state・verifier の `auth_url` を返す。Windows では保持プロセスが無い。ポートが空いているときだけ同じ状態を使い回し、別プロセスが使っているときは捨てて新しい `auth_url` を返す。返った `auth_url` が前回と違うときは、新しい URL を開く。
+
+`--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 
 すでに保存したトークンは、現在より広いスコープを持っている。同意の取り直しだけではスコープは減らない。Google アカウントのサードパーティ アクセスからこのクライアントを削除し、`auth remove` のあと `auth login --force-consent` でやり直す。手順は README の「スコープを狭めたあとの再認証」。
 
@@ -187,15 +200,20 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須（既定に `require_approval_actions` を足し、`exempt_approval_actions` で外した既定を除いた集合。両方にあるときは承認必須）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
+- 発行された `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
 - `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
 - HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。
 - HTTP 400 かつ本文の `error` が `invalid_token` のときは、すでに失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
 - 通信失敗または HTTP 5xx のときは終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
-- `invalid_token` 以外の拒否（HTTP 400 の別コードなど）は終了コード 1、`code` は `remote_revoke_failed`。ローカル削除もブロックもしない。トークンは残る。
+- `invalid_token` 以外の拒否（`invalid_client` など）は終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
 - 保存された refresh token が無いときは Google へ送らず、終了コード 3、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。
+- 正規化したアドレスがすでに `blocked_accounts` にあるときは追加しない。再実行しても policy の内容は変わらない。
 - `--dry-run` は失効リクエストを送らず、ローカル削除もブロックもしない。確認用 JSON と監査ログだけを返す。終了コードは 0。
 - `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
 - `auth login` の userinfo 取得は 30 秒で打ち切る。時間切れの code は `auth_exchange_error`（終了コード 1）。
+- `auth login` のステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。Linux と macOS で使い回すのは、保存したポートで保持プロセスが案内ページを返したときだけである。別プロセスがポートを占有しているときは、その状態を削除し、新しい `auth_url` を返す。前回と違うときは、新しい URL を開く。Windows ではポートを保持しない。空いているときだけ同じ状態を使い回し、別プロセスが使っているときは新しい `auth_url` を返す。案内ページは開かないので、アドレスバーの URL をコピーする。
+- `auth login` の userinfo が HTTP 200 以外のときの code は `auth_exchange_error`（終了コード 1）。`error` は `userinfo request failed` と HTTP ステータスコードだけ。応答本文と `error_description` は出さない。
+- `auth login` のコード交換が token endpoint で失敗したときの code は `auth_exchange_error`（終了コード 1）。`error` は `token endpoint request failed` と短い error コードだけ。`invalid_grant` でも終了コードは 1。`error_description`、`error_uri`、応答本文は出さない。token endpoint 以外の失敗は、そのエラーメッセージのまま。
 
 `auth emergency-revoke` の成功時（今回失効したとき）：
 
@@ -222,7 +240,7 @@ gog-lite --help
 #### search
 
 ```bash
-gog-lite gmail search --account EMAIL --query QUERY [--max 20] [--all-pages] [--page TOKEN]
+gog-lite gmail search --account EMAIL --query QUERY [--max 20] [--all-pages] [--max-pages 10] [--page TOKEN]
 ```
 
 ```json
@@ -233,6 +251,8 @@ gog-lite gmail search --account EMAIL --query QUERY [--max 20] [--all-pages] [--
   "nextPageToken": "..."
 }
 ```
+
+`--max` は 1 ページあたりの件数。`--all-pages` は `nextPageToken` が空になるまで繰り返すが、`--max-pages`（既定 10、1〜50）で止まる。止めたときに続きがあれば、その `nextPageToken` を返す。続きは `--page` に渡す。`--max-pages` が範囲外のときは `invalid_arguments`（終了コード 1）。この失敗ではレート制限を消費しない。
 
 よく使うクエリ例：
 - `is:unread` — 未読
@@ -318,7 +338,7 @@ gog-lite calendar calendars --account EMAIL
 
 ```bash
 gog-lite calendar list --account EMAIL [--calendar-id primary] \
-  [--from RFC3339] [--to RFC3339] [--max 20] [--all-pages] [--page TOKEN] [--query TEXT]
+  [--from RFC3339] [--to RFC3339] [--max 20] [--all-pages] [--max-pages 10] [--page TOKEN] [--query TEXT]
 ```
 
 ```json
@@ -335,6 +355,8 @@ gog-lite calendar list --account EMAIL [--calendar-id primary] \
   "nextPageToken": ""
 }
 ```
+
+`--max` は 1 ページあたりの件数。`--all-pages` は `--max-pages`（既定 10、最大 50）まで。上限に達して続きがあるときは `nextPageToken` を返す。範囲外の `--max-pages` は `invalid_arguments`（終了コード 1）。
 
 時刻は RFC3339 形式（タイムゾーン必須）：`2026-03-01T00:00:00Z` / `2026-03-01T00:00:00+09:00`
 
@@ -419,6 +441,8 @@ echo "初期内容" | gog-lite docs create --account EMAIL --title "新規ドキ
 
 #### export
 
+`--allowed-output-dir` の外は `output_not_allowed`（終了コード 4）。`--dry-run` でも同じで、API は呼ばない。
+
 ```bash
 gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|html --output PATH [--overwrite]
 ```
@@ -429,10 +453,32 @@ gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|h
 
 #### write
 
+既存内容への挿入、または `--replace` による全置換。
+
+`--replace` の本実行には `--confirm-replace` が必要。`docs.write.replace` は既定の承認必須アクションなので、`exempt_approval_actions` に含めていない限り `--approval-token` も必要。`--dry-run` では確認フラグも承認トークンも不要で、API は呼ばない。
+
 ```bash
+gog-lite --dry-run docs write --account EMAIL --doc-id DOC_ID --content "新しい内容" --replace
+
 gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace --approval-token TOKEN]
-# --replace で既存内容をすべて置換
-cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-stdin --replace
+
+cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-stdin --replace --confirm-replace --approval-token TOKEN
+```
+
+dry-run の出力：
+
+```json
+{
+  "dry_run": true,
+  "action": "docs.write",
+  "params": {
+    "account": "you@gmail.com",
+    "doc_id": "...",
+    "content_length": 15,
+    "replace": true,
+    "confirm_replace": false
+  }
+}
 ```
 
 #### find-replace
@@ -640,21 +686,27 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 
 | code | 終了コード | 意味 |
 |------|-----------|------|
-| `auth_required` | 2 | トークン未保存、または Google API が HTTP 401 を返した。どちらも `auth login` が必要 |
+| `auth_required` | 2 | トークン未保存、Google API の HTTP 401、または token endpoint の `invalid_grant`。どれも `auth login` が必要。`invalid_grant` の `error` には refresh token も応答本文も含めない。`auth login` のコード交換中の `invalid_grant` はここには入らない。HTTP 401 で応答に message が無く本文だけがあるとき、`error` は `googleapi: got HTTP response code 401` だけで応答本文は出さない。パースできた message は従来どおり出す |
+| `auth_exchange_error` | 1 | `auth login` のコード交換失敗。token endpoint の応答は固定文 `token endpoint request failed` と短い error コードだけ。`invalid_grant` でも終了コードは 1。`error_description`、`error_uri`、応答本文は出さない。userinfo が HTTP 200 以外のときは `userinfo request failed` と HTTP ステータスコードだけ。応答本文と `error_description` は出さない。state の不一致など、それ以外は、そのエラーメッセージ |
 | `remote_revoke_failed` | 1 | 通信失敗または HTTP 5xx。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
-| `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。ローカル削除もブロックもしない |
+| `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
 | `remote_revoke_failed` | 3 | 保存された refresh token がない。Google へは送らない。`blocked_accounts` には追加する |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
-| `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外のときもこれ |
+| `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外、`--max-pages` が 1〜50 以外のときもこれ |
 | `write_requires_confirmation` | 1 | 上書きに `--confirm-write` がない（`sheets update` など） |
-| `approval_required` | 4 | 承認必須アクションで token がない・不一致・使用済み・期限切れ |
-| `rate_limited` | 1 | action のレート制限を超えた |
-| `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 は `auth_required`（終了コード 2） |
+| `replace_requires_confirmation` | 1 | `docs write --replace` に `--confirm-replace` がない。`--dry-run` では不要 |
+| `output_not_allowed` | 4 | `--allowed-output-dir` の外へ `docs export` しようとした。`--dry-run` でも同じ |
+| `audit_error` | 1 | 監査ログを追記できない。ロックを 5 秒以内に取れないときも含む。`error` に `acquire lock` と `timeout` が入る |
+| `approval_required` | 4 | 承認必須アクションで token がない・不一致・使用済み・期限切れ。ロックを 5 秒以内に取れないときも含む。そのときトークンは未消費で、`error` に `acquire lock` と `timeout` が入る |
+| `rate_limited` | 1 | action のレート制限を超えた。ロックを 5 秒以内に取れないときも含む。そのとき `error` に `acquire lock` と `timeout` が入る |
+| `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2）。token endpoint のそれ以外は終了コード 1 のまま。`error` は `token endpoint request failed` と短い error コードだけ。`error_description` と応答本文は出さない |
+
+HTTP 429 のときは `Retry-After`（秒数または HTTP 日付）を待って最大 3 回再試行する。待ちは 1 回あたり 30 秒で打ち切る。負の値や過去の日付は待たない。待ちがリクエストの残り時間に収まらないとき（API クライアントのタイムアウトは 30 秒）は待たず、再試行しない。上限で切り詰めたときも、待ちを省いたときも、再試行後に失敗したときも、終了コードと `code` は各コマンドの API エラー（終了コード 1）のまま。`rate_limited` にはしない。`rate_limited` はローカルの回数制限で、そのときは承認トークンが残る。HTTP 401 と token endpoint の `invalid_grant` は `auth_required`（終了コード 2）。`invalid_grant` の `error` には refresh token も応答本文も含めない。HTTP 401 で応答に message が無く本文だけがあるとき、`error` は `googleapi: got HTTP response code 401` だけで応答本文は出さない。パースできた message は従来どおり出す。token endpoint のそれ以外の失敗は終了コード 1 のまま。`error` は `token endpoint request failed` と短い error コードだけにし、`error_description` と応答本文は出さない。
 
 ### 認証エラーの検出パターン
 
-終了コード 2 は、トークンが保存されていないときと、Google API が HTTP 401 を返したときの両方です。`code` はどちらも `auth_required` です。エージェントは `auth login` に進みます。
+終了コード 2 は、トークンが保存されていないとき、Google API が HTTP 401 を返したとき、および refresh 時に token endpoint が `invalid_grant`（HTTP 400 が多い）を返したときです。`code` はどれも `auth_required` です。`invalid_grant` の `error` には refresh token も token endpoint の応答本文も含めません。エージェントは `auth login` に進みます。`invalid_grant` 以外の token endpoint 失敗（`invalid_client` など）は終了コード 2 にしません。終了コード 1 のまま、`error` は `token endpoint request failed` と短い error コードだけです。`error_description` と応答本文は出しません。`auth login` のコード交換が token endpoint で失敗したときは、`invalid_grant` でも終了コード 2 にしません。終了コード 1、`code` は `auth_exchange_error`、`error` は同じ固定文と短い error コードだけです。`error_description`、`error_uri`、応答本文は出しません。userinfo が HTTP 200 以外のときも終了コード 1、`code` は `auth_exchange_error` です。`error` は `userinfo request failed` と HTTP ステータスコードだけです。応答本文と `error_description` は出しません。state の不一致など、token endpoint でも userinfo の HTTP ステータスでもない失敗は、そのエラーメッセージのままです。Google API の HTTP 401 で応答に message が無く本文だけがあるとき、`error` は `googleapi: got HTTP response code 401` だけで、応答本文は出しません。パースできた message は従来どおり出します。
 
 ```bash
 err_json=$(mktemp)
@@ -706,7 +758,7 @@ cat report.md | gog-lite gmail send \
 
 # LLM 生成テキストをドキュメントに書き込み
 generate_text | gog-lite docs write \
-  --account you@gmail.com --doc-id DOC_ID --content-stdin --replace
+  --account you@gmail.com --doc-id DOC_ID --content-stdin --replace --confirm-replace --approval-token TOKEN
 ```
 
 ---
@@ -740,17 +792,23 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 
 ## ページネーション
 
-`--max` と `--all-pages` を使い分ける：
+`--max` は 1 ページあたりの件数。`--all-pages` はそれを `--max-pages` ページまで繰り返す。既定は 10、最大は 50。上限に達して続きがあるときは、取得済みの結果と `nextPageToken` を返して止まる（終了コード 0）。メールボックス全体を 1 回の実行に載せない。
 
 ```bash
 # 最新20件だけ
 gog-lite gmail search --account EMAIL --query "is:unread" --max 20
 
-# 全件取得（注意：大量になる場合あり）
+# 最大10ページ（--max-pages の既定）。続きがあれば nextPageToken が返る
 gog-lite gmail search --account EMAIL --query "is:unread" --all-pages
+
+# ページ数を上げる（1〜50）
+gog-lite gmail search --account EMAIL --query "is:unread" --all-pages --max-pages 50
 
 # 手動ページング（nextPageToken を次の --page に渡す）
 first=$(gog-lite gmail search --account EMAIL --query "label:inbox" --max 10)
 token=$(echo "$first" | jq -r .nextPageToken)
 gog-lite gmail search --account EMAIL --query "label:inbox" --max 10 --page "$token"
+
+# 上限で止まった続きも、同じトークンを --page に渡す
+gog-lite gmail search --account EMAIL --query "is:unread" --all-pages --page "$token"
 ```
