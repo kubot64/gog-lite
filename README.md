@@ -163,6 +163,10 @@ gog-lite gmail search --account you@gmail.com --query "is:unread" --max 10
 # メール本文を取得
 gog-lite gmail get --account you@gmail.com --message-id MESSAGE_ID
 
+# 保存前に内容を確認（API は呼ばない）
+gog-lite --dry-run gmail send --account you@gmail.com \
+  --to boss@example.com --subject "週次レポート" --body "本文です"
+
 # メールを下書きとして保存（送信はしない）
 gog-lite gmail send --account you@gmail.com \
   --to boss@example.com --subject "週次レポート" --body "本文です"

@@ -203,6 +203,28 @@ echo "本文" | gog-lite gmail send --account EMAIL --to TO --subject SUBJECT --
 {"draft_id": "r123...", "message_id": "18c3a...", "thread_id": "18c3a...", "saved": true}
 ```
 
+`--dry-run` では Gmail API を呼ばず、監査ログと確認用 JSON だけを返す。
+
+```bash
+gog-lite --dry-run gmail send --account you@gmail.com \
+  --to boss@example.com --subject "週次レポート" --body "本文です"
+```
+
+```json
+{
+  "dry_run": true,
+  "action": "gmail.draft",
+  "params": {
+    "account": "you@gmail.com",
+    "to": "boss@example.com",
+    "cc": "",
+    "bcc": "",
+    "subject": "週次レポート",
+    "body_length": 12
+  }
+}
+```
+
 #### thread
 
 ```bash
