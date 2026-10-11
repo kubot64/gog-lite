@@ -1,6 +1,7 @@
 package googleauth
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -83,29 +84,84 @@ func callbackHoldTimeoutFromEnv() time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// ensureCallbackPort listens on a previously chosen redirect URI. If the port
-// is already taken, the existing holder is left in place.
-func ensureCallbackPort(redirectURI string) error {
+// callbackProbeTimeout bounds the loopback check that distinguishes this
+// program's holder from another process bound to the same port.
+const callbackProbeTimeout = 2 * time.Second
+
+// callbackProbeClient requests only the saved loopback redirect. It does not
+// use a proxy and does not follow redirects.
+var callbackProbeClient = &http.Client{
+	Timeout: callbackProbeTimeout,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+	Transport: &http.Transport{
+		Proxy: nil,
+		DialContext: (&net.Dialer{
+			Timeout: time.Second,
+		}).DialContext,
+		ResponseHeaderTimeout:  time.Second,
+		MaxResponseHeaderBytes: 8 << 10,
+		DisableKeepAlives:      true,
+		DisableCompression:     true,
+	},
+}
+
+// ensureCallbackPort keeps redirectURI served by this program's callback holder.
+// keep is true when this call started the holder, or when the process already
+// bound to the port returns the holder page. keep is false when that response
+// cannot be confirmed; the caller drops the saved state.
+func ensureCallbackPort(redirectURI string) (bool, error) {
 	host, err := callbackHost(redirectURI)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", host)
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
-			return nil
+			return callbackHolderResponding(redirectURI), nil
 		}
 
-		return fmt.Errorf("listen for oauth callback: %w", err)
+		return false, fmt.Errorf("listen for oauth callback: %w", err)
 	}
 
 	if err := holdCallbackPort(ln); err != nil {
 		_ = ln.Close()
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
+}
+
+// callbackHolderResponding reports whether redirectURI is served by the
+// callback holder. Only that process returns callbackHoldPage.
+func callbackHolderResponding(redirectURI string) bool {
+	if _, err := callbackHost(redirectURI); err != nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), callbackProbeTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, redirectURI, nil)
+	if err != nil {
+		return false
+	}
+	req.Close = true
+
+	resp, err := callbackProbeClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(len(callbackHoldPage))+1))
+	if err != nil {
+		return false
+	}
+
+	return resp.StatusCode == http.StatusOK && bytes.Equal(body, []byte(callbackHoldPage))
 }
 
 func callbackHost(redirectURI string) (string, error) {

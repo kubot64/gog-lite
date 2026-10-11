@@ -18,7 +18,7 @@ import (
 
 // AuthCmd groups auth subcommands.
 type AuthCmd struct {
-	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow)."`
+	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow). Step 1 reuses a saved auth URL only while this program still serves the callback port."`
 	List            AuthListCmd            `cmd:"" help:"List authenticated accounts."`
 	Remove          AuthRemoveCmd          `cmd:"" help:"Remove a stored account token."`
 	Preflight       AuthPreflightCmd       `cmd:"" help:"Check readiness for AI-agent operations."`

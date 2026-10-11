@@ -697,3 +697,357 @@ func TestStep1AndStep2_PKCEAndHeldPort(t *testing.T) {
 		t.Fatalf("state file still exists after Step2, stat err=%v", statErr)
 	}
 }
+
+func TestStep1_ReusesStateWhenCallbackPortIsFree(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	oldTimeout := callbackHoldTimeout
+	callbackHoldTimeout = 30 * time.Second
+	t.Cleanup(func() { callbackHoldTimeout = oldTimeout })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	redirectURI := "http://" + addr + "/oauth2/callback"
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st := manualState{
+		State:        "freestate",
+		RedirectURI:  redirectURI,
+		Scopes:       []string{"email"},
+		CreatedAt:    time.Now().UTC(),
+		CodeVerifier: strings.Repeat("b", 43),
+	}
+	if err := saveManualState(st); err != nil {
+		t.Fatal(err)
+	}
+
+	creds := config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}
+	opts := AuthorizeOptions{Scopes: []string{"email"}}
+	step1, err := Step1(context.Background(), creds, opts)
+	if err != nil {
+		t.Fatalf("Step1: %v", err)
+	}
+
+	authURL, err := url.Parse(step1.AuthURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := authURL.Query()
+	if q.Get("state") != st.State {
+		t.Fatalf("state = %q, want %q", q.Get("state"), st.State)
+	}
+	if q.Get("redirect_uri") != st.RedirectURI {
+		t.Fatalf("redirect_uri = %q, want %q", q.Get("redirect_uri"), st.RedirectURI)
+	}
+	if q.Get("code_challenge") != oauth2.S256ChallengeFromVerifier(st.CodeVerifier) {
+		t.Fatal("free-port reuse changed the PKCE challenge")
+	}
+	if bound, listenErr := net.Listen("tcp", addr); listenErr == nil {
+		_ = bound.Close()
+		t.Fatal("callback port was not held for the reused state")
+	}
+}
+
+func TestStep1_CallbackPortOccupied(t *testing.T) {
+	oldTimeout := callbackHoldTimeout
+	callbackHoldTimeout = 30 * time.Second
+	t.Cleanup(func() { callbackHoldTimeout = oldTimeout })
+
+	holderPage := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, callbackHoldPage)
+	})
+
+	tests := []struct {
+		name  string
+		serve func(t *testing.T, ln net.Listener)
+		reuse bool
+	}{
+		{name: "holder page", serve: serveHTTP(holderPage), reuse: true},
+		{
+			name: "foreign body",
+			serve: serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, "not-the-holder")
+			})),
+		},
+		{
+			name: "truncated holder page",
+			serve: serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, callbackHoldPage[:len(callbackHoldPage)-1])
+			})),
+		},
+		{
+			name: "holder page with trailing byte",
+			serve: serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, callbackHoldPage+" ")
+			})),
+		},
+		{
+			name: "holder page with wrong status",
+			serve: serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, callbackHoldPage, http.StatusNotFound)
+			})),
+		},
+		{name: "tcp that does not speak http", serve: serveClosingTCP},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configHome := t.TempDir()
+			t.Setenv("HOME", configHome)
+			t.Setenv("XDG_CONFIG_HOME", configHome)
+
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = ln.Close() })
+			tt.serve(t, ln)
+			waitUntilDial(t, ln.Addr().String())
+
+			_, port, err := net.SplitHostPort(ln.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			redirectURI := "http://" + ln.Addr().String() + "/oauth2/callback"
+			st := manualState{
+				State:        "occupied" + port,
+				RedirectURI:  redirectURI,
+				Scopes:       []string{"email"},
+				CreatedAt:    time.Now().UTC(),
+				CodeVerifier: strings.Repeat("a", 43),
+			}
+			if err := saveManualState(st); err != nil {
+				t.Fatal(err)
+			}
+
+			creds := config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}
+			opts := AuthorizeOptions{Scopes: []string{"email"}}
+			step1, err := Step1(context.Background(), creds, opts)
+			if err != nil {
+				t.Fatalf("Step1: %v", err)
+			}
+
+			authURL, err := url.Parse(step1.AuthURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := authURL.Query()
+			oldPath, err := manualStatePath(st.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if tt.reuse {
+				if q.Get("state") != st.State {
+					t.Fatalf("state = %q, want %q", q.Get("state"), st.State)
+				}
+				if q.Get("redirect_uri") != st.RedirectURI {
+					t.Fatalf("redirect_uri = %q, want %q", q.Get("redirect_uri"), st.RedirectURI)
+				}
+				if q.Get("code_challenge") != oauth2.S256ChallengeFromVerifier(st.CodeVerifier) {
+					t.Fatal("reused Step1 changed the PKCE challenge")
+				}
+				if _, statErr := os.Stat(oldPath); statErr != nil {
+					t.Fatalf("reused state file: %v", statErr)
+				}
+				return
+			}
+
+			if q.Get("state") == st.State {
+				t.Fatal("reused state while another process held the callback port")
+			}
+			if q.Get("redirect_uri") == st.RedirectURI {
+				t.Fatal("reused redirect URI while another process held the callback port")
+			}
+			if _, statErr := os.Stat(oldPath); !os.IsNotExist(statErr) {
+				t.Fatalf("old state file still exists, stat err=%v", statErr)
+			}
+
+			newPath, err := manualStatePath(q.Get("state"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(newPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fresh manualState
+			if err := json.Unmarshal(data, &fresh); err != nil {
+				t.Fatal(err)
+			}
+			if fresh.CodeVerifier == st.CodeVerifier {
+				t.Fatal("new state reused the old PKCE verifier")
+			}
+			if fresh.RedirectURI != q.Get("redirect_uri") {
+				t.Fatalf("stored redirect = %q, auth URL has %q", fresh.RedirectURI, q.Get("redirect_uri"))
+			}
+			if q.Get("code_challenge") != oauth2.S256ChallengeFromVerifier(fresh.CodeVerifier) {
+				t.Fatal("new auth URL does not match the new PKCE verifier")
+			}
+			if q.Get("code_challenge") == oauth2.S256ChallengeFromVerifier(st.CodeVerifier) {
+				t.Fatal("new auth URL kept the old PKCE challenge")
+			}
+
+			redirect, err := url.Parse(q.Get("redirect_uri"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bound, listenErr := net.Listen("tcp", redirect.Host); listenErr == nil {
+				_ = bound.Close()
+				t.Fatal("new callback port was not held")
+			}
+		})
+	}
+}
+
+func TestStep1_ReplacesStateWhenCallbackRedirectsToHolderPage(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	oldTimeout := callbackHoldTimeout
+	callbackHoldTimeout = 30 * time.Second
+	t.Cleanup(func() { callbackHoldTimeout = oldTimeout })
+
+	pageLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pageLn.Close() })
+	pageSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, callbackHoldPage)
+		}),
+		ReadHeaderTimeout: time.Second,
+	}
+	go func() { _ = pageSrv.Serve(pageLn) }()
+	t.Cleanup(func() { _ = pageSrv.Close() })
+
+	redirLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = redirLn.Close() })
+	target := "http://" + pageLn.Addr().String() + "/oauth2/callback"
+	redirSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target, http.StatusFound)
+		}),
+		ReadHeaderTimeout: time.Second,
+	}
+	go func() { _ = redirSrv.Serve(redirLn) }()
+	t.Cleanup(func() { _ = redirSrv.Close() })
+	waitUntilDial(t, redirLn.Addr().String())
+
+	_, port, err := net.SplitHostPort(redirLn.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	redirectURI := "http://" + redirLn.Addr().String() + "/oauth2/callback"
+	st := manualState{
+		State:        "redirect" + port,
+		RedirectURI:  redirectURI,
+		Scopes:       []string{"email"},
+		CreatedAt:    time.Now().UTC(),
+		CodeVerifier: strings.Repeat("c", 43),
+	}
+	if err := saveManualState(st); err != nil {
+		t.Fatal(err)
+	}
+
+	creds := config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}
+	opts := AuthorizeOptions{Scopes: []string{"email"}}
+	step1, err := Step1(context.Background(), creds, opts)
+	if err != nil {
+		t.Fatalf("Step1: %v", err)
+	}
+
+	authURL, err := url.Parse(step1.AuthURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authURL.Query().Get("state") == st.State {
+		t.Fatal("followed a redirect and reused the saved state")
+	}
+	if authURL.Query().Get("redirect_uri") == st.RedirectURI {
+		t.Fatal("followed a redirect and reused the saved port")
+	}
+}
+
+func TestCallbackHolderResponding_MatchesLiveHolder(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = serveCallback(ctx, ln) }()
+
+	redirectURI := "http://" + ln.Addr().String() + "/oauth2/callback"
+	waitUntilDial(t, ln.Addr().String())
+	if !callbackHolderResponding(redirectURI) {
+		t.Fatal("live holder was not recognized")
+	}
+	if callbackHolderResponding("http://example.com/oauth2/callback") {
+		t.Fatal("non-loopback URI was recognized")
+	}
+	if callbackHolderResponding(redirectURI + "/extra") {
+		t.Fatal("unexpected path was recognized")
+	}
+}
+
+func serveHTTP(h http.Handler) func(*testing.T, net.Listener) {
+	return func(t *testing.T, ln net.Listener) {
+		t.Helper()
+		srv := &http.Server{
+			Handler:           h,
+			ReadHeaderTimeout: time.Second,
+		}
+		go func() { _ = srv.Serve(ln) }()
+		t.Cleanup(func() { _ = srv.Close() })
+	}
+}
+
+func serveClosingTCP(t *testing.T, ln net.Listener) {
+	t.Helper()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+}
+
+func waitUntilDial(t *testing.T, addr string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var lastErr error
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		lastErr = err
+		if time.Now().After(deadline) {
+			t.Fatalf("listener %s did not accept: %v", addr, lastErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
