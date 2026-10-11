@@ -134,6 +134,32 @@ jobs:
           assert d['code'] == 'auth_required', f\"got code {d['code']}\"
           print('missing-token-auth-required: OK')
           "
+      - name: auth login exchange failure keeps auth_exchange_error
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth login --account test@example.com --services gmail \
+            --auth-url "http://127.0.0.1:9/oauth2/callback?code=leak-marker-9f3c2a&state=missing-state" \
+            >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 1 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_exchange_error', f\"got code {d['code']}\"
+          assert 'state mismatch' in d['error'], d['error']
+          assert 'token endpoint request failed' not in d['error'], d['error']
+          assert 'leak-marker-9f3c2a' not in d['error'], d['error']
+          print('auth-login-exchange-error: OK')
+          "
       - name: confirm-delete required for calendar delete
         run: |
           HOME=$(mktemp -d)

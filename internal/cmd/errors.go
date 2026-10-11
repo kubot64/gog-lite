@@ -20,12 +20,14 @@ func isAuthErr(err error, target **googleapi.AuthRequiredError) bool {
 	return errors.As(err, target)
 }
 
-// invalidGrantMessage is shown when the token endpoint rejects a refresh token.
-// tokenEndpointFailureMessage is shown for every other token endpoint failure.
-// RetrieveError.Error includes error_description and, when the error code was
-// not parsed, the response body. Those fields can echo the refresh token, so
-// they are never copied into the CLI error. The message is the fixed sentence
-// plus a short error code when one can be read.
+// invalidGrantMessage is shown when a refresh is rejected with invalid_grant.
+// tokenEndpointFailureMessage is shown for every other token endpoint failure,
+// and for every auth login code-exchange failure that came from the token
+// endpoint (including invalid_grant). RetrieveError.Error includes
+// error_description and, when the error code was not parsed, the response
+// body. Those fields can echo secrets, so they are never copied into the CLI
+// error. The message is the fixed sentence plus a short error code when one
+// can be read.
 const (
 	invalidGrantMessage         = "refresh token rejected (invalid_grant); run: gog-lite auth login"
 	tokenEndpointFailureMessage = "token endpoint request failed"
@@ -76,13 +78,26 @@ func retrieveError(err error) (*oauth2.RetrieveError, bool) {
 }
 
 // formatTokenEndpointFailure is the stderr text for a token endpoint failure
-// other than invalid_grant. It never includes error_description or the body.
+// that stays a generic error. It never includes error_description, error_uri,
+// or the body. Refresh uses it for everything except invalid_grant. auth login
+// uses it for every token endpoint failure, including invalid_grant.
 func formatTokenEndpointFailure(retrieve *oauth2.RetrieveError) string {
 	code := shortTokenEndpointCode(retrieve)
 	if code == "" {
 		return tokenEndpointFailureMessage
 	}
 	return tokenEndpointFailureMessage + " (" + code + ")"
+}
+
+// authExchangeErrorMessage is the stderr text for auth login step 2.
+// A token endpoint response uses formatTokenEndpointFailure, which keeps only
+// shortTokenEndpointCode. invalid_grant is not rewritten to auth_required.
+// Other failures (state mismatch, userinfo, transport) keep err.Error().
+func authExchangeErrorMessage(err error) string {
+	if retrieve, ok := retrieveError(err); ok {
+		return formatTokenEndpointFailure(retrieve)
+	}
+	return err.Error()
 }
 
 // shortTokenEndpointCode returns RFC 6749's error field when it is a short
