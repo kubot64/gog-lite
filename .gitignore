@@ -1,7 +1,8 @@
-# Build output
-gog-lite
+# Build output (repo-root binary and release artifacts only).
+# Anchored so cmd/gog-lite/ source is not ignored.
+/gog-lite
 /bin/
-dist/
+/dist/
 
 # Go
 vendor/
