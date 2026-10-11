@@ -684,6 +684,8 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `rate_limited` | 1 | action のレート制限を超えた |
 | `search_error` / `get_error` 等 | 1 | API エラー。HTTP 401 は `auth_required`（終了コード 2） |
 
+HTTP 429 のときは `Retry-After`（秒数または HTTP 日付）を待って最大 3 回再試行する。待ちは 1 回あたり 30 秒で打ち切る。負の値や過去の日付は待たない。この上限は終了コードや `code` を変えない。再試行後も失敗したときは、各コマンドの API エラー（終了コード 1）のまま。HTTP 401 は `auth_required`（終了コード 2）。
+
 ### 認証エラーの検出パターン
 
 終了コード 2 は、トークンが保存されていないときと、Google API が HTTP 401 を返したときの両方です。`code` はどちらも `auth_required` です。エージェントは `auth login` に進みます。

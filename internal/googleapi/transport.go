@@ -12,10 +12,14 @@ import (
 )
 
 const (
-	maxRetries429      = 3
-	maxRetries5xx      = 1
-	rateLimitBaseDelay = 1 * time.Second
-	serverErrorDelay   = 1 * time.Second
+	maxRetries429        = 3
+	maxRetries5xx        = 1
+	rateLimitBaseDelay   = 1 * time.Second
+	serverErrorDelay     = 1 * time.Second
+	maxRetryAfterSeconds = 30
+	// maxRetryAfter caps a Retry-After delay. A large delta-seconds value or a
+	// far HTTP-date must not stall the retry loop.
+	maxRetryAfter = maxRetryAfterSeconds * time.Second
 )
 
 // RetryTransport wraps an http.RoundTripper with retry logic for 429 and 5xx.
@@ -116,6 +120,10 @@ func (t *RetryTransport) calculateBackoff(attempt int, resp *http.Response) time
 				return 0
 			}
 
+			if seconds > maxRetryAfterSeconds {
+				return maxRetryAfter
+			}
+
 			return time.Duration(seconds) * time.Second
 		}
 
@@ -123,6 +131,10 @@ func (t *RetryTransport) calculateBackoff(attempt int, resp *http.Response) time
 			d := time.Until(parsed)
 			if d < 0 {
 				return 0
+			}
+
+			if d > maxRetryAfter {
+				return maxRetryAfter
 			}
 
 			return d

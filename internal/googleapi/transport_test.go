@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +158,77 @@ func TestRetryTransport_429RetryAfterHeader(t *testing.T) {
 	}
 	if resp.StatusCode != 200 {
 		t.Errorf("want 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestCalculateBackoff_RetryAfterSecondsCapped(t *testing.T) {
+	rt := &RetryTransport{BaseDelay: time.Second}
+	tests := []struct {
+		header string
+		want   time.Duration
+	}{
+		{header: "0", want: 0},
+		{header: "-1", want: 0},
+		{header: "1", want: time.Second},
+		{header: "29", want: 29 * time.Second},
+		{header: "30", want: maxRetryAfter},
+		{header: "31", want: maxRetryAfter},
+		{header: "86400", want: maxRetryAfter},
+	}
+	for _, tt := range tests {
+		resp := mockResp(429)
+		resp.Header.Set("Retry-After", tt.header)
+		if got := rt.calculateBackoff(0, resp); got != tt.want {
+			t.Errorf("Retry-After %q = %s, want %s", tt.header, got, tt.want)
+		}
+	}
+}
+
+func TestCalculateBackoff_RetryAfterOverflowCaps(t *testing.T) {
+	// 9223372037 seconds overflows time.Duration when multiplied by time.Second.
+	const header = "9223372037"
+	if _, err := strconv.Atoi(header); err != nil {
+		t.Skip("platform int cannot represent an overflowing Retry-After")
+	}
+
+	rt := &RetryTransport{BaseDelay: time.Second}
+	resp := mockResp(429)
+	resp.Header.Set("Retry-After", header)
+	if got := rt.calculateBackoff(0, resp); got != maxRetryAfter {
+		t.Fatalf("overflow Retry-After = %s, want %s", got, maxRetryAfter)
+	}
+}
+
+func TestCalculateBackoff_RetryAfterHTTPDateCapped(t *testing.T) {
+	rt := &RetryTransport{BaseDelay: time.Second}
+
+	far := mockResp(429)
+	far.Header.Set("Retry-After", time.Now().Add(2*time.Hour).UTC().Format(http.TimeFormat))
+	if got := rt.calculateBackoff(0, far); got != maxRetryAfter {
+		t.Fatalf("far HTTP-date = %s, want %s", got, maxRetryAfter)
+	}
+
+	past := mockResp(429)
+	past.Header.Set("Retry-After", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat))
+	if got := rt.calculateBackoff(0, past); got != 0 {
+		t.Fatalf("past HTTP-date = %s, want 0", got)
+	}
+
+	soon := mockResp(429)
+	soon.Header.Set("Retry-After", time.Now().Add(10*time.Second).UTC().Format(http.TimeFormat))
+	got := rt.calculateBackoff(0, soon)
+	if got <= 0 || got > 11*time.Second || got >= maxRetryAfter {
+		t.Fatalf("short HTTP-date = %s, want a delay under 30s", got)
+	}
+}
+
+func TestCalculateBackoff_InvalidRetryAfterUsesBackoff(t *testing.T) {
+	rt := &RetryTransport{BaseDelay: time.Second}
+	resp := mockResp(429)
+	resp.Header.Set("Retry-After", "not-a-date")
+	got := rt.calculateBackoff(0, resp)
+	if got < time.Second || got >= time.Second+time.Second/2 {
+		t.Fatalf("invalid Retry-After = %s, want backoff in [1s, 1.5s)", got)
 	}
 }
 
