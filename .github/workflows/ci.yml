@@ -220,6 +220,8 @@ jobs:
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_CLIENT_ID=dummy-id
           export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
           echo "issued token"
@@ -258,6 +260,8 @@ jobs:
           HOME=$(mktemp -d)
           export HOME
           export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           out=$(/tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x)
           echo "$out"
           python3 -c "
@@ -272,6 +276,8 @@ jobs:
           HOME=$(mktemp -d)
           export HOME
           export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           err_json=$(mktemp)
           /tmp/gog-lite sheets update --account test@example.com --spreadsheet-id x \
             --range "Sheet1!A1" --values '[["=SUM(A1)"]]' 2>"$err_json" && code=0 || code=$?
@@ -342,6 +348,88 @@ jobs:
           assert d['code'] == 'invalid_arguments', f\"got code {d['code']}\"
           print('sheets-update-invalid-value-input: OK')
           "
+
+      - name: audit log hmac chain rejects recomputation
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_KEYRING_BACKEND=file
+          unset GOG_LITE_KEYRING_PASSWORD
+          err_json=$(mktemp)
+          /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x 2>"$err_json" && code=0 || code=$?
+          echo "missing keyring exit code: $code"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'audit_error', d
+          print('audit-log-needs-keyring: OK')
+          "
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id one >/dev/null || {
+            echo "expected first audit append to succeed"
+            exit 1
+          }
+          /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id two >/dev/null || {
+            echo "expected second audit append to succeed"
+            exit 1
+          }
+          audit="$XDG_CONFIG_HOME/gog-lite/audit.log"
+          python3 -c "
+          import json
+          lines = [json.loads(line) for line in open('$audit') if line.strip()]
+          assert len(lines) == 2, lines
+          assert lines[0]['hash_alg'] == 'hmac-sha256', lines[0]
+          assert lines[1]['hash_alg'] == 'hmac-sha256', lines[1]
+          assert 'prev_hash' not in lines[0], lines[0]
+          assert lines[1]['prev_hash'] == lines[0]['hash'], lines
+          assert lines[0]['action'] == 'calendar.delete', lines[0]
+          print('audit-log-hmac-chain: OK')
+          "
+          python3 -c "
+          import hashlib, json
+          path = '$audit'
+          lines = [json.loads(line) for line in open(path) if line.strip()]
+          prev = ''
+          rewritten = []
+          for entry in lines:
+              entry.pop('hash_alg', None)
+              entry['action'] = 'tampered'
+              entry['prev_hash'] = prev
+              material = '|'.join([
+                  entry['timestamp'],
+                  entry['action'],
+                  entry.get('account') or '',
+                  entry.get('target') or '',
+                  'true' if entry['dry_run'] else 'false',
+                  entry.get('prev_hash') or '',
+              ])
+              entry['hash'] = hashlib.sha256(material.encode()).hexdigest()
+              if not prev:
+                  entry.pop('prev_hash', None)
+              prev = entry['hash']
+              rewritten.append(entry)
+          with open(path, 'w') as fh:
+              for entry in rewritten:
+                  fh.write(json.dumps(entry, separators=(',', ':')) + '\n')
+          print('audit-log-rewritten-as-sha256')
+          "
+          err_json=$(mktemp)
+          /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id three 2>"$err_json" && code=0 || code=$?
+          echo "recompute exit code: $code"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'audit_error', d
+          print('audit-log-recompute-rejected: OK')
+          "
+
       - name: emergency-revoke blocks locally when no refresh token is stored
         run: |
           HOME=$(mktemp -d)
@@ -412,6 +500,8 @@ jobs:
           export XDG_CONFIG_HOME="$HOME"
           export GOG_LITE_CLIENT_ID=dummy-id
           export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           mkdir -p "$HOME/gog-lite"
           printf '%s\n' '{"require_approval_actions":["gmail.draft"]}' > "$HOME/gog-lite/policy.json"
           err_json=$(mktemp)

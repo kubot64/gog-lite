@@ -18,7 +18,7 @@ gog-lite の実装時に守るルールをまとめる。
 
 - `policy_denied` / `approval_required` / confirm フラグ要件を維持する。
 - `--dry-run` では外部 API 呼び出しをしない。
-- 監査ログ（`audit.log`）は書き込み操作の痕跡を残す。
+- 監査ログ（`audit.log`）は書き込み操作の痕跡を残す。新規行は keyring の HMAC 鍵でハッシュし、追記はファイルロックの中で行う。
 - credentials / token / password をソース・ログへ出さない。
 
 ## エラー設計

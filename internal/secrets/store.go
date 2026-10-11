@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,8 +27,16 @@ var (
 	errNoTTY                  = errors.New("no TTY available for keyring file backend password prompt")
 	errKeyringTimeout         = errors.New("keyring connection timed out")
 	errMissingKeyringPassword = errors.New("GOG_LITE_KEYRING_PASSWORD must be set when using file keyring backend")
+	errInvalidSecretName      = errors.New("invalid secret name")
+	errReservedSecretName     = errors.New("secret name is reserved")
+	errEmptySecret            = errors.New("secret data is empty")
+	errInvalidSecretSize      = errors.New("secret size must be positive")
+	errUnexpectedSecretLength = errors.New("stored secret has unexpected length")
 	keyringOpenFunc           = keyring.Open
 )
+
+// ErrNotFound is returned when a keyring item does not exist.
+var ErrNotFound = keyring.ErrKeyNotFound
 
 // Token is stored in the keyring for each account.
 type Token struct {
@@ -277,4 +286,87 @@ func (s *Store) ListTokens() ([]Token, error) {
 	}
 
 	return out, nil
+}
+
+func validateSecretName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.Contains(name, "\x00") {
+		return errInvalidSecretName
+	}
+	if strings.HasPrefix(name, "token:") {
+		return errReservedSecretName
+	}
+
+	return nil
+}
+
+func cloneBytes(b []byte) []byte {
+	out := make([]byte, len(b))
+	copy(out, b)
+
+	return out
+}
+
+// GetSecret reads a non-token item from the keyring.
+func (s *Store) GetSecret(name string) ([]byte, error) {
+	if err := validateSecretName(name); err != nil {
+		return nil, err
+	}
+
+	item, err := s.ring.Get(name)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("read secret: %w", err)
+	}
+
+	return cloneBytes(item.Data), nil
+}
+
+// SetSecret writes a non-token item to the keyring.
+func (s *Store) SetSecret(name string, data []byte) error {
+	if err := validateSecretName(name); err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return errEmptySecret
+	}
+
+	if err := s.ring.Set(keyringItem(name, cloneBytes(data))); err != nil {
+		return fmt.Errorf("store secret: %w", err)
+	}
+
+	return nil
+}
+
+// GetOrCreateSecret returns an existing secret of the given size, or stores a new random one.
+// Callers that share a name across processes must serialize creation themselves.
+func (s *Store) GetOrCreateSecret(name string, size int) ([]byte, error) {
+	if size <= 0 {
+		return nil, errInvalidSecretSize
+	}
+
+	existing, err := s.GetSecret(name)
+	if err == nil {
+		if len(existing) != size {
+			return nil, errUnexpectedSecretLength
+		}
+
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, fmt.Errorf("generate secret: %w", err)
+	}
+	if err := s.SetSecret(name, buf); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
 }

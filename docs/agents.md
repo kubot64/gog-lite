@@ -32,6 +32,8 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `sheets update` と `sheets append` はセル値を既定で `RAW` として書き込む。数式や日付として解釈するのは `--value-input USER_ENTERED` を付けたときだけ
 - `sheets update` は `--confirm-write` と、既定では `--approval-token` を要求する。`--dry-run` ではどちらも不要
 - `--audit-log` と `--allowed-output-dir` は安全制御として扱う
+- 監査ログの新規行は `hash_alg` が `hmac-sha256`。`hash_alg` の無い既存行は SHA-256 のまま読む
+- 監査ログの追記には keyring が必要。失敗時の code は `audit_error`（終了コード 1）
 - `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。通信失敗・5xx・トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
 
 ## Safety Controls
@@ -41,7 +43,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `--approval-token`: 承認必須アクションで使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`。`require_approval_actions` はこれに追加し、`exempt_approval_actions` は既定から外す。両方に書いたアクションは承認必須のまま
 - 書き込み系コマンド（calendar の作成・更新・削除、docs の作成・書き込み・置換・export、sheets の update・append、slides write）は action ごとに 1 分あたり 30 回まで。超過時の code は `rate_limited`。`--dry-run` は回数に含めない。`gmail.send` は 1 分あたり 20 回
 - 承認トークンはレート制限を通過したあとに消費する。`rate_limited` のときはトークンは残る
-- `--audit-log`: 書き込み操作を JSONL で記録する
+- `--audit-log`: 書き込み操作を JSONL で記録する。省略時は設定ディレクトリの `audit.log`。追記はファイルロックの中で行い、新規行の `hash` は keyring の HMAC-SHA256（`hash_alg=hmac-sha256`）。末尾ハッシュも keyring に残す。`hash_alg` の無い行は従来の SHA-256 として検証する
 - `--allowed-output-dir`: エクスポートなどのファイル出力先を制限する
 
 ## 実行ポリシー（policy.json）
