@@ -281,7 +281,7 @@ jobs:
           first_out=$(mktemp)
           first_err=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-            --approval-token "$token" >"$first_out" 2>"$first_err" && first_code=0 || first_code=$?
+            --approval-token="$token" >"$first_out" 2>"$first_err" && first_code=0 || first_code=$?
           echo "first use exit code: $first_code"
           echo "first use stderr:"
           cat "$first_err"
@@ -301,7 +301,7 @@ jobs:
           out_json=$(mktemp)
           err_json=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-            --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
           echo "reuse exit code: $code"
           echo "reuse stderr:"
           cat "$err_json"
@@ -460,14 +460,14 @@ jobs:
           token=$(/tmp/gog-lite auth approval-token --account test@example.com --action docs.write.replace --ttl 10m \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
           /tmp/gog-lite --dry-run docs write --account test@example.com --doc-id x --content hello --replace \
-            --confirm-replace --approval-token "$token" >/dev/null || {
+            --confirm-replace --approval-token="$token" >/dev/null || {
             echo "dry-run with approval token failed"
             exit 1
           }
           err_json=$(mktemp)
           out_json=$(mktemp)
           /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace \
-            --confirm-replace --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            --confirm-replace --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
           echo "token still valid exit code: $code"
           cat "$err_json"
           [ "$code" -eq 2 ]
@@ -481,7 +481,7 @@ jobs:
           "
           err_json=$(mktemp)
           /tmp/gog-lite docs write --account test@example.com --doc-id x --content hello --replace \
-            --confirm-replace --approval-token "$token" >/dev/null 2>"$err_json" && code=0 || code=$?
+            --confirm-replace --approval-token="$token" >/dev/null 2>"$err_json" && code=0 || code=$?
           echo "token consumed exit code: $code"
           cat "$err_json"
           [ "$code" -eq 4 ]
