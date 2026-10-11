@@ -1010,6 +1010,142 @@ func TestExecute_AuthLoginExchangeKeepsOtherErrors(t *testing.T) {
 	}
 }
 
+func TestExecute_AuthLoginUserInfoOmitsBody(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+	const clientSecret = "super-secret-client-secret"
+	const account = "test@example.com"
+	const state = "teststate"
+	const authCode = "auth-code-" + marker
+	const accessToken = "access-token-" + marker
+	const refreshToken = "refresh-token-" + marker
+	const redirectURI = "http://127.0.0.1:9/oauth2/callback"
+
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{
+			name:   "unauthorized oauth error",
+			status: http.StatusUnauthorized,
+			body:   `{"error":"invalid_token","error_description":"echo ` + marker + ` ` + accessToken + `","access_token":"` + accessToken + `"}`,
+		},
+		{
+			name:   "plain text",
+			status: http.StatusBadRequest,
+			body:   "not-json " + marker + " " + accessToken + " " + refreshToken + " " + clientSecret,
+		},
+		{
+			name:   "server error",
+			status: http.StatusBadGateway,
+			body:   marker,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupFileKeyring(t)
+			t.Setenv("GOG_LITE_CLIENT_SECRET", clientSecret)
+
+			scopes, err := googleauth.ScopesForServices([]googleauth.Service{googleauth.ServiceGmail})
+			if err != nil {
+				t.Fatalf("ScopesForServices: %v", err)
+			}
+			verifier := oauth2.GenerateVerifier()
+			writeOAuthManualState(t, state, redirectURI, verifier, scopes)
+
+			tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Errorf("read body: %v", err)
+				}
+				vals, err := url.ParseQuery(string(raw))
+				if err != nil {
+					t.Errorf("parse form: %v", err)
+				}
+				if vals.Get("grant_type") != "authorization_code" {
+					t.Errorf("grant_type = %q", vals.Get("grant_type"))
+				}
+				if vals.Get("code") != authCode {
+					t.Errorf("code = %q", vals.Get("code"))
+				}
+				if vals.Get("code_verifier") != verifier {
+					t.Errorf("code_verifier = %q", vals.Get("code_verifier"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"access_token":"`+accessToken+`","refresh_token":"`+refreshToken+`","token_type":"Bearer","expires_in":3600}`)
+			}))
+			t.Cleanup(tokenSrv.Close)
+
+			userinfoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("Authorization"); got != "Bearer "+accessToken {
+					t.Errorf("authorization = %q", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			t.Cleanup(userinfoSrv.Close)
+
+			restoreToken := googleauth.SetOAuthEndpointForTest(oauth2.Endpoint{
+				AuthURL:   "https://accounts.google.com/o/oauth2/auth",
+				TokenURL:  tokenSrv.URL,
+				AuthStyle: oauth2.AuthStyleInParams,
+			})
+			t.Cleanup(restoreToken)
+			restoreUserInfo := googleauth.SetUserInfoEndpointForTest(userinfoSrv.URL)
+			t.Cleanup(restoreUserInfo)
+
+			authURL := redirectURI + "?code=" + url.QueryEscape(authCode) + "&state=" + url.QueryEscape(state)
+			prevArgs := os.Args
+			t.Cleanup(func() { os.Args = prevArgs })
+			os.Args = []string{
+				"gog-lite", "auth", "login",
+				"--account", account,
+				"--services", "gmail",
+				"--auth-url", authURL,
+			}
+
+			var runErr error
+			var stdout string
+			stderr := captureStderr(t, func() {
+				stdout = captureStdout(t, func() {
+					runErr = Execute(context.Background(), "dev")
+				})
+			})
+			if strings.TrimSpace(stdout) != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			if got := output.ExitCode(runErr); got != output.ExitCodeError {
+				t.Fatalf("exit code = %d, want %d (stderr %q)", got, output.ExitCodeError, stderr)
+			}
+			assertErrorCode(t, stderr, "auth_exchange_error")
+			payload := decodeErrorPayload(t, stderr)
+			want := "userinfo request failed (HTTP " + fmt.Sprint(tt.status) + ")"
+			if payload.Error != want {
+				t.Fatalf("error = %q, want %q", payload.Error, want)
+			}
+			for _, secret := range []string{
+				marker, accessToken, refreshToken, authCode, verifier, clientSecret,
+				"error_description", "extract email from userinfo", "userinfo status", tt.body,
+			} {
+				if secret != "" && strings.Contains(stderr, secret) {
+					t.Fatalf("stderr leaked %q: %q", secret, stderr)
+				}
+			}
+
+			dir, err := config.Dir()
+			if err != nil {
+				t.Fatalf("Dir: %v", err)
+			}
+			statePath := filepath.Join(dir, "oauth-manual-state-"+state+".json")
+			if _, err := os.Stat(statePath); err != nil {
+				t.Fatalf("state file after failed userinfo: %v", err)
+			}
+		})
+	}
+}
+
 func writeOAuthManualState(t *testing.T, state, redirectURI, verifier string, scopes []string) {
 	t.Helper()
 	dir, err := config.EnsureDir()
