@@ -1257,6 +1257,61 @@ jobs:
           print('approval-consumed-after-lock-release: OK')
           "
 
+      - name: one waiter takes a dead audit lock
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+
+          audit_lock="$HOME/gog-lite/audit.log.lock"
+          mkdir -p "$(dirname "$audit_lock")"
+          pid_max=$(cat /proc/sys/kernel/pid_max)
+          printf '%s\n' "$pid_max" > "$audit_lock"
+
+          tmp=$(mktemp -d)
+          pids=()
+          for i in 1 2 3 4; do
+            /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id "e$i" \
+              >"$tmp/out$i" 2>"$tmp/err$i" &
+            pids+=("$!")
+          done
+          fail=0
+          for i in 1 2 3 4; do
+            if ! wait "${pids[$((i - 1))]}"; then
+              echo "command $i failed"
+              cat "$tmp/err$i"
+              fail=1
+            fi
+            if [ -s "$tmp/err$i" ]; then
+              echo "command $i wrote stderr"
+              cat "$tmp/err$i"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+          python3 -c "
+          import json, os, pathlib
+          tmp = pathlib.Path('$tmp')
+          for i in range(1, 5):
+              d = json.loads((tmp / f'out{i}').read_text())
+              assert d.get('dry_run') is True, d
+              assert d.get('action') == 'calendar.delete', d
+          log = pathlib.Path(os.environ['HOME']) / 'gog-lite' / 'audit.log'
+          lines = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+          assert len(lines) == 4, lines
+          prev = ''
+          for i, entry in enumerate(lines):
+              got = entry.get('prev_hash', '')
+              assert got == prev, (i, got, prev, lines)
+              prev = entry['hash']
+          print('concurrent-dead-lock: OK')
+          "
+
   security-nightly:
     name: Security Regression (nightly)
     runs-on: ubuntu-latest

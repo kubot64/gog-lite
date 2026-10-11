@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"errors"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -247,6 +249,111 @@ func TestWithFileLock_RejectsSymlink(t *testing.T) {
 	if _, err := os.Lstat(target + ".lock"); err != nil {
 		t.Fatalf("symlink removed: %v", err)
 	}
+}
+
+func TestWithFileLock_OnlyOneWaiterStealsStaleLock(t *testing.T) {
+	// Linux flock is per open-file description, so goroutines contend the same
+	// way processes do. BSD flock is per process and would not show the race.
+	if runtime.GOOS != "linux" {
+		t.Skip("thread-level flock contention is Linux-specific")
+	}
+	t.Run("dead pid", func(t *testing.T) {
+		pid := unusedPID(t)
+		assertOneStealer(t, func(lockPath string) {
+			if err := os.WriteFile(lockPath, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+				t.Fatalf("write lock: %v", err)
+			}
+		})
+	})
+	t.Run("aged legacy", func(t *testing.T) {
+		assertOneStealer(t, func(lockPath string) {
+			if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+				t.Fatalf("write lock: %v", err)
+			}
+			old := time.Now().Add(-time.Hour)
+			if err := os.Chtimes(lockPath, old, old); err != nil {
+				t.Fatalf("chtimes: %v", err)
+			}
+		})
+	})
+}
+
+// assertOneStealer starts every waiter on one stale lock. The hold is long
+// enough that overlapping entry is visible, and far below the acquire timeout.
+func assertOneStealer(t *testing.T, plant func(lockPath string)) {
+	t.Helper()
+	const (
+		n        = 16
+		hold     = 5 * time.Millisecond
+		attempts = 5
+	)
+	for attempt := 0; attempt < attempts; attempt++ {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "resource")
+		plant(target + ".lock")
+
+		var current, maxSeen, entered atomic.Int32
+		errCh := make(chan error, n)
+		var ready, wg sync.WaitGroup
+		start := make(chan struct{})
+		ready.Add(n)
+		wg.Add(n)
+		for i := 0; i < n; i++ {
+			go func() {
+				defer wg.Done()
+				ready.Done()
+				<-start
+				err := withFileLock(target, func() error {
+					c := current.Add(1)
+					for {
+						old := maxSeen.Load()
+						if c <= old || maxSeen.CompareAndSwap(old, c) {
+							break
+						}
+					}
+					time.Sleep(hold)
+					current.Add(-1)
+					entered.Add(1)
+					return nil
+				})
+				errCh <- err
+			}()
+		}
+		ready.Wait()
+		close(start)
+		wg.Wait()
+		close(errCh)
+
+		for err := range errCh {
+			if err != nil {
+				t.Fatalf("attempt %d acquire: %v", attempt, err)
+			}
+		}
+		if got := entered.Load(); got != n {
+			t.Fatalf("attempt %d entered = %d, want %d", attempt, got, n)
+		}
+		if got := maxSeen.Load(); got != 1 {
+			t.Fatalf("attempt %d max in section = %d, want 1", attempt, got)
+		}
+	}
+}
+
+func unusedPID(t *testing.T) int {
+	t.Helper()
+	candidates := []int{math.MaxInt32}
+	if b, err := os.ReadFile("/proc/sys/kernel/pid_max"); err == nil {
+		n, convErr := strconv.Atoi(strings.TrimSpace(string(b)))
+		if convErr == nil && n > 1 {
+			candidates = append([]int{n}, candidates...)
+		}
+	}
+	for _, pid := range candidates {
+		if pid > 1 && !processAlive(pid) {
+			return pid
+		}
+	}
+	t.Fatal("no unused pid for a dead lock")
+	return 0
 }
 
 func TestWithFileLock_SerializesCriticalSections(t *testing.T) {
