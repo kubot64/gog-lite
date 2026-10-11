@@ -953,6 +953,123 @@ jobs:
           check_reaches_auth calendar-max-pages-10 calendar.list \
             /tmp/gog-lite calendar list --account test@example.com --all-pages --max-pages=10
 
+      - name: aged live lock is not stolen
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+
+          hold_live_lock() {
+            local lock="$1"
+            mkdir -p "$(dirname "$lock")"
+            printf '%s\n' "$$" > "$lock"
+            touch -d '2 hours ago' "$lock"
+          }
+
+          expect_lock_timeout() {
+            local want_code="$1"
+            local label="$2"
+            shift 2
+            local err_json out_json start end elapsed code
+            err_json=$(mktemp)
+            out_json=$(mktemp)
+            start=$(date +%s)
+            "$@" >"$out_json" 2>"$err_json" && code=0 || code=$?
+            end=$(date +%s)
+            elapsed=$((end - start))
+            echo "$label exit code: $code elapsed: ${elapsed}s"
+            cat "$err_json"
+            [ "$code" -ne 0 ]
+            [ ! -s "$out_json" ]
+            [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+            [ "$elapsed" -ge 3 ] || { echo "$label returned in ${elapsed}s; a live lock was taken"; exit 1; }
+            [ "$elapsed" -le 20 ] || { echo "$label took ${elapsed}s; expected the 5s acquire timeout"; exit 1; }
+            python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d['code'] == sys.argv[2], d
+          err = d.get('error', '')
+          assert 'acquire lock' in err and 'timeout' in err, d
+          print(sys.argv[3] + ': OK')
+            " "$err_json" "$want_code" "$label"
+          }
+
+          audit_lock="$HOME/gog-lite/audit.log.lock"
+          hold_live_lock "$audit_lock"
+          expect_lock_timeout audit_error aged-audit-lock \
+            /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x
+          [ -e "$audit_lock" ]
+          sleep 30 &
+          dead=$!
+          kill "$dead" || true
+          wait "$dead" || true
+          printf '%s\n' "$dead" > "$audit_lock"
+          touch "$audit_lock"
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          start=$(date +%s)
+          /tmp/gog-lite --dry-run calendar delete --account test@example.com --event-id x >"$out_json" 2>"$err_json"
+          end=$(date +%s)
+          elapsed=$((end - start))
+          echo "dead audit lock elapsed: ${elapsed}s"
+          cat "$err_json"
+          [ "$elapsed" -le 3 ]
+          [ ! -s "$err_json" ]
+          python3 -c "
+          import json
+          d = json.load(open('$out_json'))
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'calendar.delete', d
+          print('dead-audit-lock-replaced: OK')
+          "
+
+          rate_lock="$HOME/gog-lite/ratelimit/calendar.delete.json.lock"
+          hold_live_lock "$rate_lock"
+          expect_lock_timeout rate_limited aged-rate-lock \
+            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete
+          [ -e "$rate_lock" ]
+          rm -f "$rate_lock"
+
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m >"$out_json" 2>"$err_json"
+          echo "issue token stderr:"
+          cat "$err_json"
+          [ ! -s "$err_json" ]
+          token=$(python3 -c "import json; print(json.load(open('$out_json'))['token'])")
+          token_path="$HOME/gog-lite/approvals/${token}.json"
+          token_lock="${token_path}.lock"
+          hold_live_lock "$token_lock"
+          expect_lock_timeout approval_required aged-approval-lock \
+            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token="$token"
+          python3 -c "
+          import json
+          st = json.load(open('$token_path'))
+          assert st.get('used') is False, st
+          print('approval-lock-timeout-keeps-token: OK')
+          "
+          rm -f "$token_lock"
+          err_json=$(mktemp)
+          out_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete --approval-token="$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "consume after release, exit code: $code"
+          cat "$err_json"
+          [ "$code" -eq 2 ]
+          [ ! -s "$out_json" ]
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'auth_required', d
+          st = json.load(open('$token_path'))
+          assert st.get('used') is True, st
+          print('approval-consumed-after-lock-release: OK')
+          "
+
   security-nightly:
     name: Security Regression (nightly)
     runs-on: ubuntu-latest
@@ -963,7 +1080,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run security regression tests
-        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestReadStdinWithLimit'
+        run: go test ./... -v -run 'TestAudit|TestApproval|TestPolicy|TestRateLimit|TestReadStdinWithLimit|TestWithFileLock'
         env:
           GOG_LITE_KEYRING_BACKEND: file
           GOG_LITE_KEYRING_PASSWORD: ci-test-password
