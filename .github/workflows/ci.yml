@@ -763,7 +763,9 @@ jobs:
           ( cd "${GITHUB_WORKSPACE}" && go run ./cmd/ci-seed-token test@example.com dummy-refresh-token )
 
           echo "127.0.0.1 oauth2.googleapis.com # ${hosts_mark}" | sudo tee -a /etc/hosts >/dev/null
-          sudo python3 "$work/server.py" "$work/server.crt" "$work/server.key" >"$work/server.log" 2>&1 &
+          # Redirect inside sudo so the log is opened as root (shellcheck SC2024).
+          sudo sh -c 'umask 022; exec python3 "$1" "$2" "$3" >"$4" 2>&1' sh \
+            "$work/server.py" "$work/server.crt" "$work/server.key" "$work/server.log" &
           server_pid=$!
           ready=0
           for _ in $(seq 1 50); do
@@ -775,7 +777,7 @@ jobs:
           done
           if [ "$ready" -ne 1 ]; then
             echo "revoke stub did not start"
-            cat "$work/server.log" || true
+            sudo cat "$work/server.log" || true
             exit 1
           fi
 
@@ -789,7 +791,7 @@ jobs:
           cat "$err_json"
           if [ "$code" -ne 1 ]; then
             echo "server log:"
-            cat "$work/server.log" || true
+            sudo cat "$work/server.log" || true
             exit 1
           fi
           [ ! -s "$out_json" ]
