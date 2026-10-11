@@ -264,6 +264,81 @@ jobs:
           assert d.get('action') == 'calendar.delete', f\"expected action calendar.delete, got {d.get('action')}\"
           print('dry-run-skips-token: OK')
           " "$out"
+      - name: sheets update requires confirm and approval; values default to RAW
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          err_json=$(mktemp)
+          /tmp/gog-lite sheets update --account test@example.com --spreadsheet-id x \
+            --range "Sheet1!A1" --values '[["=SUM(A1)"]]' 2>"$err_json" && code=0 || code=$?
+          echo "missing confirm exit code: $code"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'write_requires_confirmation', f\"got code {d['code']}\"
+          print('sheets-update-confirm: OK')
+          "
+          err_json=$(mktemp)
+          /tmp/gog-lite sheets update --account test@example.com --spreadsheet-id x \
+            --range "Sheet1!A1" --values '[["a"]]' --confirm-write 2>"$err_json" && code=0 || code=$?
+          echo "missing token exit code: $code"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          print('sheets-update-approval: OK')
+          "
+          out=$(/tmp/gog-lite --dry-run sheets update --account test@example.com --spreadsheet-id x \
+            --range "Sheet1!A1:B1" --values '[["Alice",30]]')
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') is True
+          assert d.get('action') == 'sheets.update'
+          assert d.get('params', {}).get('value_input') == 'RAW', d
+          print('sheets-update-dry-run-raw: OK')
+          " "$out"
+          out=$(/tmp/gog-lite --dry-run sheets update --account test@example.com --spreadsheet-id x \
+            --range "Sheet1!C1" --values '[["=SUM(A1:A3)"]]' --value-input USER_ENTERED)
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('params', {}).get('value_input') == 'USER_ENTERED', d
+          print('sheets-update-user-entered: OK')
+          " "$out"
+          out=$(/tmp/gog-lite --dry-run sheets append --account test@example.com --spreadsheet-id x \
+            --range Sheet1 --values '[["Bob",25]]')
+          echo "$out"
+          python3 -c "
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d.get('dry_run') is True
+          assert d.get('action') == 'sheets.append'
+          assert d.get('params', {}).get('value_input') == 'RAW', d
+          print('sheets-append-dry-run-raw: OK')
+          " "$out"
+          err_json=$(mktemp)
+          /tmp/gog-lite --dry-run sheets update --account test@example.com --spreadsheet-id x \
+            --range "Sheet1!A1" --values '[["a"]]' --value-input FORMULA 2>"$err_json" && code=0 || code=$?
+          echo "bad value-input exit code: $code"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'invalid_arguments', f\"got code {d['code']}\"
+          print('sheets-update-invalid-value-input: OK')
+          "
 
   security-nightly:
     name: Security Regression (nightly)

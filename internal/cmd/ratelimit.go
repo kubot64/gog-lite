@@ -13,6 +13,16 @@ import (
 
 var nowUTC = func() time.Time { return time.Now().UTC() }
 
+// writeRateLimitPerMinute caps each mutating command (and docs export).
+// Read commands keep their own limits. gmail.send keeps its 20/min cap.
+// Dry-run returns before this limit is consumed.
+// Tests may lower it; production code should leave the default in place.
+var writeRateLimitPerMinute = 30
+
+func enforceWriteRateLimit(action string) error {
+	return enforceRateLimit(action, writeRateLimitPerMinute, time.Minute)
+}
+
 type rateLimitState struct {
 	Timestamps []string `json:"timestamps"`
 }

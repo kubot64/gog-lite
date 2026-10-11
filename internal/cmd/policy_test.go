@@ -54,12 +54,28 @@ func TestActionRequiresApproval_Default(t *testing.T) {
 		t.Fatal("calendar.delete should require approval by default")
 	}
 
+	required, err = actionRequiresApproval("sheets.update")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !required {
+		t.Fatal("sheets.update should require approval by default")
+	}
+
 	required, err = actionRequiresApproval("gmail.search")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if required {
 		t.Fatal("gmail.search should not require approval by default")
+	}
+
+	required, err = actionRequiresApproval("sheets.append")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if required {
+		t.Fatal("sheets.append should not require approval by default")
 	}
 }
 

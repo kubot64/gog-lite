@@ -29,13 +29,16 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - アカウント対象コマンドでは `--account` を必須とする
 - 書き込み系操作は `--dry-run` を標準の事前確認手段とする
 - 破壊的操作は `confirm` と必要に応じて `approval-token` で保護する
+- `sheets update` と `sheets append` はセル値を既定で `RAW` として書き込む。数式や日付として解釈するのは `--value-input USER_ENTERED` を付けたときだけ
+- `sheets update` は `--confirm-write` と、既定では `--approval-token` を要求する。`--dry-run` ではどちらも不要
 - `--audit-log` と `--allowed-output-dir` は安全制御として扱う
 
 ## Safety Controls
 
 - `--dry-run`: API を呼ばずに実行内容を確認する
 - `--confirm-*`: 削除・置換などの高リスク操作に必要
-- `--approval-token`: policy により追加承認が必要な操作で使う
+- `--approval-token`: policy により追加承認が必要な操作で使う。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
+- 書き込み系コマンド（calendar の作成・更新・削除、docs の作成・書き込み・置換・export、sheets の update・append、slides write）は action ごとに 1 分あたり 30 回まで。超過時の code は `rate_limited`。`--dry-run` は回数に含めない。`gmail.send` は 1 分あたり 20 回
 - `--audit-log`: 書き込み操作を JSONL で記録する
 - `--allowed-output-dir`: エクスポートなどのファイル出力先を制限する
 
@@ -423,14 +426,41 @@ gog-lite sheets get --account EMAIL --spreadsheet-id SPREADSHEET_ID --range "She
 
 #### update
 
-```bash
-gog-lite sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \
-  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+既存セルの上書き。値の既定は `RAW`（`=SUM(...)` のような文字列は数式にならない）。数式や日付として解釈するときだけ `--value-input USER_ENTERED` を付ける。
 
-# dry-run で確認
+本実行には `--confirm-write` が必要。`sheets.update` は既定の承認必須アクションなので、policy で外していない限り `--approval-token` も必要。`--dry-run` では確認フラグも承認トークンも不要で、API は呼ばない。
+
+```bash
 gog-lite --dry-run sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \
   --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+
+gog-lite sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]' \
+  --confirm-write --approval-token TOKEN
+
+# 数式として書き込む
+gog-lite sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!C1" --values '[["=SUM(A1:A3)"]]' \
+  --value-input USER_ENTERED --confirm-write --approval-token TOKEN
 ```
+
+dry-run の出力：
+
+```json
+{
+  "dry_run": true,
+  "action": "sheets.update",
+  "params": {
+    "account": "you@gmail.com",
+    "spreadsheet_id": "...",
+    "range": "Sheet1!A1:B1",
+    "row_count": 1,
+    "value_input": "RAW"
+  }
+}
+```
+
+成功時：
 
 ```json
 {
@@ -442,7 +472,11 @@ gog-lite --dry-run sheets update --account EMAIL --spreadsheet-id SPREADSHEET_ID
 }
 ```
 
+`--confirm-write` が無いときの code は `write_requires_confirmation`（終了コード 1）。承認トークンが無い・不一致・使用済みのときの code は `approval_required`（終了コード 4）。
+
 #### append
+
+行を末尾に追加する。確認フラグは不要。値の既定は `RAW`。数式として追加するときだけ `--value-input USER_ENTERED` を付ける。
 
 ```bash
 gog-lite sheets append --account EMAIL --spreadsheet-id SPREADSHEET_ID \
@@ -451,6 +485,10 @@ gog-lite sheets append --account EMAIL --spreadsheet-id SPREADSHEET_ID \
 # stdin から読み込み
 echo '[["Bob",25]]' | gog-lite sheets append --account EMAIL \
   --spreadsheet-id SPREADSHEET_ID --range Sheet1 --values-stdin
+
+# 数式として追加
+gog-lite sheets append --account EMAIL --spreadsheet-id SPREADSHEET_ID \
+  --range Sheet1 --values '[["=SUM(A1:A3)"]]' --value-input USER_ENTERED
 ```
 
 ```json
@@ -546,6 +584,10 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `auth_required` | 2 | トークン未保存（`auth login` が必要） |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
+| `invalid_value_input` | 1 | `--value-input` が `RAW` / `USER_ENTERED` 以外 |
+| `write_requires_confirmation` | 1 | 上書きに `--confirm-write` がない（`sheets update` など） |
+| `approval_required` | 4 | 承認必須アクションで token がない・不一致・使用済み・期限切れ |
+| `rate_limited` | 1 | action のレート制限を超えた |
 | `search_error` / `get_error` 等 | 1 | API エラー |
 
 ### 認証エラーの検出パターン

@@ -143,6 +143,10 @@ func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
+	if err := enforceWriteRateLimit("docs.create"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
@@ -245,6 +249,10 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 		})
 	}
 
+	if err := enforceWriteRateLimit("docs.export"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	driveSvc, err := googleapi.NewDriveReadOnly(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
@@ -343,6 +351,10 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 				"confirm_replace": c.ConfirmReplace,
 			},
 		})
+	}
+
+	if err := enforceWriteRateLimit("docs.write"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
@@ -463,6 +475,10 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 				"match_case": c.MatchCase,
 			},
 		})
+	}
+
+	if err := enforceWriteRateLimit("docs.find_replace"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)

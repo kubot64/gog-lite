@@ -10,6 +10,7 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 - **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
 - **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
+- **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
 - **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる
 - **`gmail send` は下書き保存契約** — 即時送信ではなく Gmail draft として保存する
 
@@ -233,14 +234,20 @@ gog-lite sheets info --account you@gmail.com --spreadsheet-id SPREADSHEET_ID
 gog-lite sheets get --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
   --range "Sheet1!A1:C5"
 
-# セル値を更新（--dry-run で確認してから）
+# セル値を更新（既定は RAW。上書きには --confirm-write と approval-token が必要）
 gog-lite --dry-run sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
   --range "Sheet1!A1:B1" --values '[["Alice",30]]'
 
 gog-lite sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
-  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]' \
+  --confirm-write --approval-token TOKEN
 
-# 行を末尾に追加（stdin から）
+# 数式として書き込むときだけ USER_ENTERED
+gog-lite sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!C1" --values '[["=SUM(A1:A3)"]]' \
+  --value-input USER_ENTERED --confirm-write --approval-token TOKEN
+
+# 行を末尾に追加（stdin から。既定は RAW）
 echo '[["Bob",25]]' | gog-lite sheets append --account you@gmail.com \
   --spreadsheet-id SPREADSHEET_ID --range Sheet1 --values-stdin
 ```

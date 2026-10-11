@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"google.golang.org/api/sheets/v4"
@@ -17,7 +18,7 @@ import (
 type SheetsCmd struct {
 	Info   SheetsInfoCmd   `cmd:"" help:"Get spreadsheet metadata."`
 	Get    SheetsGetCmd    `cmd:"" help:"Get cell values from a range."`
-	Update SheetsUpdateCmd `cmd:"" help:"Update cell values in a range."`
+	Update SheetsUpdateCmd `cmd:"" help:"Update cell values in a range. Requires --confirm-write."`
 	Append SheetsAppendCmd `cmd:"" help:"Append rows to a sheet."`
 }
 
@@ -116,6 +117,9 @@ type SheetsUpdateCmd struct {
 	Range         string `name:"range" required:"" help:"Cell range to update (e.g. Sheet1!A1:B2)."`
 	Values        string `name:"values" help:"JSON array of rows (e.g. [[\"Alice\",30]])."`
 	ValuesStdin   bool   `name:"values-stdin" help:"Read values JSON from stdin."`
+	ValueInput    string `name:"value-input" default:"RAW" enum:"RAW,USER_ENTERED" help:"How Sheets interprets values. RAW (default) stores text as-is. USER_ENTERED parses formulas and dates."`
+	ConfirmWrite  bool   `name:"confirm-write" help:"Required confirmation flag for overwriting cell values."`
+	ApprovalToken string `name:"approval-token" help:"One-time approval token for dangerous actions."`
 }
 
 func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -137,6 +141,28 @@ func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "invalid_values", fmt.Sprintf("parse values JSON: %v", err))
 	}
 
+	valueInput, err := normalizeSheetsValueInput(c.ValueInput)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "invalid_value_input", err.Error())
+	}
+
+	if !root.DryRun && !c.ConfirmWrite {
+		return output.WriteError(output.ExitCodeError, "write_requires_confirmation",
+			"sheets update requires --confirm-write")
+	}
+
+	if !root.DryRun {
+		required, err := actionRequiresApproval("sheets.update")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			if err := consumeApprovalToken(c.Account, "sheets.update", c.ApprovalToken); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
+	}
+
 	if root.DryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "sheets.update",
@@ -154,8 +180,13 @@ func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 				"spreadsheet_id": c.SpreadsheetID,
 				"range":          c.Range,
 				"row_count":      len(values),
+				"value_input":    valueInput,
 			},
 		})
+	}
+
+	if err := enforceWriteRateLimit("sheets.update"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	svc, err := googleapi.NewSheetsWrite(ctx, c.Account)
@@ -165,7 +196,7 @@ func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	valueRange := &sheets.ValueRange{Values: toInterfaceSlice(values)}
 	resp, err := svc.Spreadsheets.Values.Update(c.SpreadsheetID, c.Range, valueRange).
-		ValueInputOption("USER_ENTERED").Do()
+		ValueInputOption(valueInput).Do()
 	if err != nil {
 		return writeGoogleAPIError("sheets_update_error", err)
 	}
@@ -195,6 +226,7 @@ type SheetsAppendCmd struct {
 	Range         string `name:"range" required:"" help:"Sheet or range to append to (e.g. Sheet1)."`
 	Values        string `name:"values" help:"JSON array of rows (e.g. [[\"Bob\",25]])."`
 	ValuesStdin   bool   `name:"values-stdin" help:"Read values JSON from stdin."`
+	ValueInput    string `name:"value-input" default:"RAW" enum:"RAW,USER_ENTERED" help:"How Sheets interprets values. RAW (default) stores text as-is. USER_ENTERED parses formulas and dates."`
 }
 
 func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -216,6 +248,11 @@ func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "invalid_values", fmt.Sprintf("parse values JSON: %v", err))
 	}
 
+	valueInput, err := normalizeSheetsValueInput(c.ValueInput)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "invalid_value_input", err.Error())
+	}
+
 	if root.DryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "sheets.append",
@@ -233,8 +270,13 @@ func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
 				"spreadsheet_id": c.SpreadsheetID,
 				"range":          c.Range,
 				"row_count":      len(values),
+				"value_input":    valueInput,
 			},
 		})
+	}
+
+	if err := enforceWriteRateLimit("sheets.append"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	svc, err := googleapi.NewSheetsWrite(ctx, c.Account)
@@ -244,7 +286,7 @@ func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	valueRange := &sheets.ValueRange{Values: toInterfaceSlice(values)}
 	resp, err := svc.Spreadsheets.Values.Append(c.SpreadsheetID, c.Range, valueRange).
-		ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
+		ValueInputOption(valueInput).InsertDataOption("INSERT_ROWS").Do()
 	if err != nil {
 		return writeGoogleAPIError("sheets_append_error", err)
 	}
@@ -275,6 +317,19 @@ func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
 		"updated_range":  updatedRange,
 		"updated_rows":   updatedRows,
 	})
+}
+
+// normalizeSheetsValueInput defaults to RAW so values that start with "="
+// stay text unless the caller explicitly opts into USER_ENTERED.
+func normalizeSheetsValueInput(v string) (string, error) {
+	switch strings.TrimSpace(v) {
+	case "", "RAW":
+		return "RAW", nil
+	case "USER_ENTERED":
+		return "USER_ENTERED", nil
+	default:
+		return "", fmt.Errorf("--value-input must be RAW or USER_ENTERED, got %q", v)
+	}
 }
 
 func sheetsAuthError(err error) error {
