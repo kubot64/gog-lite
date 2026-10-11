@@ -51,6 +51,51 @@ go test ./internal/cmd -run 'TestName'
 GOCACHE=/tmp/gocache go test ./...
 ```
 
+## schedule が無効になったとき
+
+公開リポジトリでは、60 日コミットなどの操作が無いと GitHub が `schedule` を無効にする。対象は `ci.yml`（毎日 02:00 UTC）と `codeql.yml`（毎週月曜 03:00 UTC）。push / pull_request の CI は対象外。無効になったあとは、その cron 自身では復活しない。
+
+両ワークフローの keepalive ジョブは、`schedule` と `workflow_dispatch` の実行のたびに次を呼ぶ。権限はそのジョブだけの `actions: write`。空コミットは使わない。
+
+- `PUT /repos/{owner}/{repo}/actions/workflows/ci.yml/enable`
+- `PUT /repos/{owner}/{repo}/actions/workflows/codeql.yml/enable`
+
+一度止まるとこのジョブも走らない。Actions 画面で戻す。
+
+1. リポジトリの **Actions** タブを開く。
+2. 左の一覧で **CI** または **CodeQL** を選ぶ。
+3. 無効化の案内と **Enable workflow** が出ている場合は、そのボタンを押す。
+4. 同じ画面の **Run workflow** でブランチ `main` を選び、手動実行する。次の cron を待たずに keepalive が走る。CI の手動実行は通常の CI ジョブと nightly と keepalive をまとめて走らせ、CodeQL の手動実行は解析と keepalive を走らせる。
+5. CI と CodeQL の両方を確認する。片方が無効のままだと、そちらの cron は戻らない。
+
+## Actions の許可リスト
+
+ワークフロー内のアクションはコミット SHA にピンする。不変性は YAML のピンが担う。リポジトリ設定の許可リストはリポジトリ単位のワイルドカードにし、Dependabot が SHA を更新しても設定の追記が要らないようにする。
+
+設定変更はリポジトリの Actions 管理権限が要る。コードからは変更しない。
+
+1. **Settings**（設定）→ 左の **Actions** → **General**（一般）を開く。
+2. **Actions permissions**（アクションの権限）で **Allow specific actions and reusable workflows**（指定したアクションと再利用可能なワークフローを許可。画面によっては Allow specified actions）を選ぶ。
+3. テキストボックスのフル SHA 行を、次のパターンに置き換える。1 行に 1 パターン。
+
+```
+actions/checkout@*
+actions/setup-go@*
+actions/upload-artifact@*
+rhysd/actionlint@*
+goreleaser/goreleaser-action@*
+peter-evans/create-pull-request@*
+github/codeql-action/*@*
+```
+
+4. **Save**（保存）する。
+
+`actions/upload-artifact` は `ci.yml` が使っている。パターンから漏れると、そのワークフローは startup_failure になる。フル SHA 行を残すと、Dependabot の SHA 更新のたびに許可リストの追記がまた必要になる。SHA 以外の既存パターンがある場合は消さず、SHA 行だけを上のワイルドカードに置き換える。
+
+YAML の SHA ピンは外さない。**Require actions to be pinned to a full-length commit SHA** が有効なら、そのままでよい。
+
+`.github/dependabot.yml` の `github-actions` は `groups` でまとめ、アクション更新を 1 本の PR にする。`check-action-refs.sh` は SHA が解決できることに加え、`# v6` のようなコメントがそのコミットのタグ（`v6` または `v6.0.2`）と一致するかを確認する。
+
 ## マージ判定
 
 - 必須チェックが green であること。

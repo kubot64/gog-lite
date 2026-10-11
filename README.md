@@ -77,6 +77,8 @@ GitHub Actions の YAML 構文と workflow 設定を事前に確認できます�
 ./scripts/check-action-refs.sh
 ```
 
+`check-action-refs.sh` は、外部アクションの SHA が解決できることに加え、`# v6` のようなコメントがそのコミットのタグ（`v6` または `v6.0.2`）と一致するかを確認します。
+
 `actionlint` をインストール済みの場合は、構文チェックに加えて workflow lint も実行します。
 
 ```bash
