@@ -21,15 +21,26 @@ func isAuthErr(err error, target **googleapi.AuthRequiredError) bool {
 }
 
 // invalidGrantMessage is shown when the token endpoint rejects a refresh token.
+// tokenEndpointFailureMessage is shown for every other token endpoint failure.
 // RetrieveError.Error includes error_description and, when the error code was
 // not parsed, the response body. Those fields can echo the refresh token, so
-// they are never copied into the CLI error.
-const invalidGrantMessage = "refresh token rejected (invalid_grant); run: gog-lite auth login"
+// they are never copied into the CLI error. The message is the fixed sentence
+// plus a short error code when one can be read.
+const (
+	invalidGrantMessage         = "refresh token rejected (invalid_grant); run: gog-lite auth login"
+	tokenEndpointFailureMessage = "token endpoint request failed"
+)
 
 // writeGoogleAPIError maps common Google API HTTP errors to exit codes.
 func writeGoogleAPIError(defaultCode string, err error) error {
 	if isInvalidGrant(err) {
 		return output.WriteError(output.ExitCodeAuth, "auth_required", invalidGrantMessage)
+	}
+	if retrieve, ok := retrieveError(err); ok {
+		// invalid_grant is handled above. Other token endpoint failures stay a
+		// generic API error (exit code 1, the caller's code) but do not copy
+		// error_description or the response body.
+		return output.WriteError(output.ExitCodeError, defaultCode, formatTokenEndpointFailure(retrieve))
 	}
 
 	var apiErr *gapi.Error
@@ -49,20 +60,45 @@ func writeGoogleAPIError(defaultCode string, err error) error {
 }
 
 func isInvalidGrant(err error) bool {
+	retrieve, ok := retrieveError(err)
+	if !ok {
+		return false
+	}
+	return shortTokenEndpointCode(retrieve) == "invalid_grant"
+}
+
+func retrieveError(err error) (*oauth2.RetrieveError, bool) {
 	var retrieve *oauth2.RetrieveError
 	if !errors.As(err, &retrieve) || retrieve == nil {
-		return false
+		return nil, false
 	}
-	if retrieve.ErrorCode == "invalid_grant" {
-		return true
+	return retrieve, true
+}
+
+// formatTokenEndpointFailure is the stderr text for a token endpoint failure
+// other than invalid_grant. It never includes error_description or the body.
+func formatTokenEndpointFailure(retrieve *oauth2.RetrieveError) string {
+	code := shortTokenEndpointCode(retrieve)
+	if code == "" {
+		return tokenEndpointFailureMessage
 	}
-	// A parsed code other than invalid_grant (invalid_client, and so on) stays a generic API error.
+	return tokenEndpointFailureMessage + " (" + code + ")"
+}
+
+// shortTokenEndpointCode returns RFC 6749's error field when it is a short
+// identifier. A parsed ErrorCode wins, which is the same field oauth2 already
+// read. When that field is empty, the body is read with tokenEndpointErrorCode.
+// Anything that is not a short identifier is dropped, including a parsed code
+// that contains spaces or other characters. error_description and the rest of
+// the body are never returned.
+func shortTokenEndpointCode(retrieve *oauth2.RetrieveError) string {
+	if isSafeOAuthErrorCode(retrieve.ErrorCode) {
+		return retrieve.ErrorCode
+	}
 	if retrieve.ErrorCode != "" {
-		return false
+		return ""
 	}
-	// Some token responses are not parsed into ErrorCode. Read only the error
-	// code. The rest of the body is not copied into the CLI error.
-	return tokenEndpointErrorCode(retrieve.Body) == "invalid_grant"
+	return tokenEndpointErrorCode(retrieve.Body)
 }
 
 // tokenEndpointErrorCode reads RFC 6749's error field and drops anything that
