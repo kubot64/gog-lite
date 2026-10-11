@@ -335,28 +335,3 @@ func parseLockPID(b []byte) (int, bool) {
 
 	return pid, true
 }
-
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-
-	proc, err := os.FindProcess(pid)
-	if err != nil || proc == nil {
-		// Unknown probe result. Leave the lock in place.
-		return true
-	}
-	// Linux FindProcess opens a pidfd. Close it after the probe.
-	defer func() { _ = proc.Release() }()
-
-	err = proc.Signal(syscall.Signal(0))
-	if err == nil || errors.Is(err, syscall.EPERM) {
-		return true
-	}
-	// Go reports a missing process as ErrProcessDone (ESRCH is converted).
-	if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
-		return false
-	}
-
-	return true
-}

@@ -345,6 +345,9 @@ func TestExecute_LoginHelpListsSheetsAndSlides(t *testing.T) {
 	if !strings.Contains(payload.Help, "sheets") || !strings.Contains(payload.Help, "slides") {
 		t.Fatalf("login help omits sheets/slides: %q", payload.Help)
 	}
+	if !strings.Contains(payload.Help, "Windows") {
+		t.Fatalf("login help omits the Windows port-hold fallback: %q", payload.Help)
+	}
 }
 
 func TestExecute_SearchHelpIncludesMaxPages(t *testing.T) {

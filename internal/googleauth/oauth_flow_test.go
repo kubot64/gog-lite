@@ -536,6 +536,7 @@ func TestStep2_KeepsStateWhenExchangeFails(t *testing.T) {
 }
 
 func TestStep1AndStep2_PKCEAndHeldPort(t *testing.T) {
+	skipIfCallbackHoldUnsupported(t)
 	configHome := t.TempDir()
 	t.Setenv("HOME", configHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -699,6 +700,7 @@ func TestStep1AndStep2_PKCEAndHeldPort(t *testing.T) {
 }
 
 func TestStep1_ReusesStateWhenCallbackPortIsFree(t *testing.T) {
+	skipIfCallbackHoldUnsupported(t)
 	configHome := t.TempDir()
 	t.Setenv("HOME", configHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -756,6 +758,7 @@ func TestStep1_ReusesStateWhenCallbackPortIsFree(t *testing.T) {
 }
 
 func TestStep1_CallbackPortOccupied(t *testing.T) {
+	skipIfCallbackHoldUnsupported(t)
 	oldTimeout := callbackHoldTimeout
 	callbackHoldTimeout = 30 * time.Second
 	t.Cleanup(func() { callbackHoldTimeout = oldTimeout })
@@ -1007,6 +1010,230 @@ func TestCallbackHolderResponding_MatchesLiveHolder(t *testing.T) {
 	if callbackHolderResponding(redirectURI + "/extra") {
 		t.Fatal("unexpected path was recognized")
 	}
+}
+
+func TestStep1_ContinuesWhenPortHoldIsUnsupported(t *testing.T) {
+	prev := callbackHoldSupported
+	callbackHoldSupported = false
+	t.Cleanup(func() { callbackHoldSupported = prev })
+
+	exerciseStep1WithoutCallbackHolder(t)
+}
+
+func skipIfCallbackHoldUnsupported(t *testing.T) {
+	t.Helper()
+	if !callbackHoldSupported {
+		t.Skip("callback port hold is unavailable on this platform")
+	}
+}
+
+// exerciseStep1WithoutCallbackHolder checks the Windows path: step 1 succeeds
+// without listening, step 2 can exchange the copied URL, a free port reuses
+// the saved state, the holder page still counts as ours, and a foreign
+// listener forces a new state whose port is also left free.
+func exerciseStep1WithoutCallbackHolder(t *testing.T) {
+	t.Helper()
+	if callbackHoldSupported {
+		t.Fatal("callback hold must be disabled for this exercise")
+	}
+
+	t.Run("step2", func(t *testing.T) {
+		creds, opts, step1 := step1WithoutHolder(t)
+		authURL := mustParseAuthURL(t, step1.AuthURL)
+		state := authURL.Query().Get("state")
+		redirect := authURL.Query().Get("redirect_uri")
+		assertPortFree(t, redirect)
+
+		again, err := Step1(context.Background(), creds, opts)
+		if err != nil {
+			t.Fatalf("Step1 reuse: %v", err)
+		}
+		againURL := mustParseAuthURL(t, again.AuthURL)
+		if againURL.Query().Get("state") != state {
+			t.Fatal("free port did not reuse the saved state")
+		}
+		assertPortFree(t, redirect)
+
+		redirectURL := redirect + "?code=auth-code&state=" + url.QueryEscape(state)
+		step2, err := Step2(context.Background(), creds, opts, redirectURL)
+		if err != nil {
+			t.Fatalf("Step2: %v", err)
+		}
+		if step2.RefreshToken != "refresh-token" || step2.Email != "you@example.com" {
+			t.Fatalf("Step2 result = %+v", step2)
+		}
+		path, err := manualStatePath(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("state file still exists after Step2, stat err=%v", statErr)
+		}
+	})
+
+	t.Run("holder page", func(t *testing.T) {
+		ln := listenLoopbackForTest(t)
+		serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, callbackHoldPage)
+		}))(t, ln)
+		waitUntilDial(t, ln.Addr().String())
+
+		redirectURI := "http://" + ln.Addr().String() + "/oauth2/callback"
+		st := manualState{
+			State:        "holderpage",
+			RedirectURI:  redirectURI,
+			Scopes:       []string{"email"},
+			CreatedAt:    time.Now().UTC(),
+			CodeVerifier: strings.Repeat("a", 43),
+		}
+		configHome := t.TempDir()
+		t.Setenv("HOME", configHome)
+		t.Setenv("XDG_CONFIG_HOME", configHome)
+		if err := saveManualState(st); err != nil {
+			t.Fatal(err)
+		}
+
+		creds := config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}
+		opts := AuthorizeOptions{Scopes: []string{"email"}}
+		step1, err := Step1(context.Background(), creds, opts)
+		if err != nil {
+			t.Fatalf("Step1: %v", err)
+		}
+		if mustParseAuthURL(t, step1.AuthURL).Query().Get("state") != st.State {
+			t.Fatal("holder page did not reuse the saved state")
+		}
+	})
+
+	t.Run("foreign listener", func(t *testing.T) {
+		creds, opts, step1 := step1WithoutHolder(t)
+		authURL := mustParseAuthURL(t, step1.AuthURL)
+		oldState := authURL.Query().Get("state")
+		redirect := authURL.Query().Get("redirect_uri")
+		parsed, err := url.Parse(redirect)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ln, err := net.Listen("tcp", parsed.Host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+		serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "not-the-holder")
+		}))(t, ln)
+		waitUntilDial(t, ln.Addr().String())
+
+		fresh, err := Step1(context.Background(), creds, opts)
+		if err != nil {
+			t.Fatalf("Step1: %v", err)
+		}
+		freshURL := mustParseAuthURL(t, fresh.AuthURL)
+		if freshURL.Query().Get("state") == oldState {
+			t.Fatal("reused state while another process held the callback port")
+		}
+		if freshURL.Query().Get("redirect_uri") == redirect {
+			t.Fatal("reused redirect URI while another process held the callback port")
+		}
+		oldPath, err := manualStatePath(oldState)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, statErr := os.Stat(oldPath); !os.IsNotExist(statErr) {
+			t.Fatalf("old state file still exists, stat err=%v", statErr)
+		}
+		assertPortFree(t, freshURL.Query().Get("redirect_uri"))
+	})
+}
+
+func step1WithoutHolder(t *testing.T) (config.ClientCredentials, AuthorizeOptions, Step1Result) {
+	t.Helper()
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil || r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("code_verifier") == "" {
+			http.Error(w, "bad grant", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"access-token","refresh_token":"refresh-token","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	userinfoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"email":"you@example.com","email_verified":true}`))
+	}))
+	t.Cleanup(userinfoSrv.Close)
+
+	oldEndpoint := oauthEndpoint
+	oauthEndpoint = oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/auth", TokenURL: tokenSrv.URL}
+	t.Cleanup(func() { oauthEndpoint = oldEndpoint })
+
+	oldUserInfo := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = userinfoSrv.URL
+	t.Cleanup(func() { oauthUserInfoEndpoint = oldUserInfo })
+
+	creds := config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}
+	opts := AuthorizeOptions{Scopes: []string{"email"}}
+	step1, err := Step1(context.Background(), creds, opts)
+	if err != nil {
+		t.Fatalf("Step1: %v", err)
+	}
+	if step1.NextStep == "" || step1.AuthURL == "" {
+		t.Fatalf("Step1 result = %+v", step1)
+	}
+	authURL := mustParseAuthURL(t, step1.AuthURL)
+	if authURL.Query().Get("code_challenge_method") != "S256" || authURL.Query().Get("code_challenge") == "" {
+		t.Fatalf("auth URL missing PKCE challenge: %s", step1.AuthURL)
+	}
+	if strings.Contains(step1.AuthURL, "code_verifier=") {
+		t.Fatal("auth URL contains the PKCE verifier")
+	}
+
+	return creds, opts, step1
+}
+
+func mustParseAuthURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return parsed
+}
+
+func assertPortFree(t *testing.T, redirectURI string) {
+	t.Helper()
+	parsed, err := url.Parse(redirectURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", parsed.Host)
+	if err != nil {
+		t.Fatalf("callback port %s was held: %v", parsed.Host, err)
+	}
+	_ = ln.Close()
+}
+
+func listenLoopbackForTest(t *testing.T) net.Listener {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	return ln
 }
 
 func serveHTTP(h http.Handler) func(*testing.T, net.Listener) {

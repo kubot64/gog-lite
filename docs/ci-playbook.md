@@ -26,6 +26,12 @@ CI 失敗時の調査・対処手順。
   - CI で必要な環境変数を確認（`GOG_LITE_CLIENT_ID`, `GOG_LITE_CLIENT_SECRET`）。
   - file backend 利用時は `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定。Linux でセッションバスが無いときもファイルバックエンドになり、パスワードが空だと `keyring_error` になる。環境変数を消しても `/run/user/<uid>/bus` があるとセッションバスとして扱う。
 
+### Windows 向けのコンパイル
+
+- 症状: Unit Tests の「Vet and compile tests for Windows」が落ちる。
+- 対処: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` と、各パッケージの `go test -c` で直す。このステップは既存の Unit Tests ジョブの中にある。必須チェックの名前は増えない。
+- `internal/cmd` のロックは、Windows では flock を使わず、死んだ PID のロックファイルを消して作り直す。生存確認は `OpenProcess` の結果を見る。
+
 ### staticcheck
 
 - 症状: `staticcheck` ジョブが非ゼロで終わる。

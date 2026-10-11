@@ -135,12 +135,13 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 
 ブラウザで `auth_url` を開く。認証後、ブラウザのアドレスバーに
 `http://127.0.0.1:PORT/oauth2/callback?code=...&state=...` のような URL が表示される。
-ステップ 1 はそのポートを最大 10 分つかむので、コピーを案内するページが開くことがある。
+Linux と macOS では、ステップ 1 がそのポートを最大 10 分つかむので、コピーを案内するページが開くことがある。
 ページが開かなくても、アドレスバーの URL をコピーする。
+Windows ではリスニングソケットを別プロセスへ渡せない。ポートは保持せず、ステップ 1 は成功する。案内ページは開かない。
 
-ステップ 1 は `auth_url` の JSON を出して終了する。ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じ `--auth-url` でステップ 2 を再実行できる。
+ステップ 1 は `auth_url` の JSON を出して終了する。Linux と macOS では、ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じ `--auth-url` でステップ 2 を再実行できる。
 
-ステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。使い回すのは、保存したポートで保持プロセスが案内ページを返したときだけである。別プロセスがポートを使っていて確かめられないときは、その状態ファイルを削除し、新しいポート・state・verifier の `auth_url` を返す。返った `auth_url` が前回と違うときは、新しい URL を開く。
+ステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。Linux と macOS で使い回すのは、保存したポートで保持プロセスが案内ページを返したときだけである。別プロセスがポートを使っていて確かめられないときは、その状態ファイルを削除し、新しいポート・state・verifier の `auth_url` を返す。Windows では保持プロセスが無い。ポートが空いているときだけ同じ状態を使い回し、別プロセスが使っているときは捨てて新しい `auth_url` を返す。返った `auth_url` が前回と違うときは、新しい URL を開く。
 
 `--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 
@@ -210,7 +211,7 @@ gog-lite --help
 - `--dry-run` は失効リクエストを送らず、ローカル削除もブロックもしない。確認用 JSON と監査ログだけを返す。終了コードは 0。
 - `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
 - `auth login` の userinfo 取得は 30 秒で打ち切る。時間切れの code は `auth_exchange_error`（終了コード 1）。
-- `auth login` のステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。使い回すのは、保存したポートで保持プロセスが案内ページを返したときだけである。別プロセスがポートを占有しているときは、その状態を削除し、新しい `auth_url` を返す。前回と違うときは、新しい URL を開く。
+- `auth login` のステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。Linux と macOS で使い回すのは、保存したポートで保持プロセスが案内ページを返したときだけである。別プロセスがポートを占有しているときは、その状態を削除し、新しい `auth_url` を返す。前回と違うときは、新しい URL を開く。Windows ではポートを保持しない。空いているときだけ同じ状態を使い回し、別プロセスが使っているときは新しい `auth_url` を返す。案内ページは開かないので、アドレスバーの URL をコピーする。
 - `auth login` の userinfo が HTTP 200 以外のときの code は `auth_exchange_error`（終了コード 1）。`error` は `userinfo request failed` と HTTP ステータスコードだけ。応答本文と `error_description` は出さない。
 - `auth login` のコード交換が token endpoint で失敗したときの code は `auth_exchange_error`（終了コード 1）。`error` は `token endpoint request failed` と短い error コードだけ。`invalid_grant` でも終了コードは 1。`error_description`、`error_uri`、応答本文は出さない。token endpoint 以外の失敗は、そのエラーメッセージのまま。
 

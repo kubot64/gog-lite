@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -178,9 +177,9 @@ func TestWithFileLock_LegacyEmptyLockUsesAge(t *testing.T) {
 
 func TestWithFileLock_ReacquiresAfterHolderExits(t *testing.T) {
 	if os.Getenv("GOG_LITE_LOCK_HELPER") == "1" {
-		// SIGKILL skips the unlock defer, leaving the PID behind as a crash would.
+		// Stop without running the unlock defer, leaving the PID behind.
 		_ = withFileLock(os.Getenv("GOG_LITE_LOCK_TARGET"), func() error {
-			_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+			abandonLockedProcess()
 			return nil
 		})
 		os.Exit(1)
