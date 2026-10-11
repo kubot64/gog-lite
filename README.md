@@ -176,8 +176,30 @@ gog-lite auth list                        # 認証済みアカウント一覧
 gog-lite auth remove --account EMAIL      # アカウントのトークンを削除
 gog-lite auth preflight --account EMAIL --require-actions gmail.draft,calendar.create
 gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
-gog-lite auth emergency-revoke --account EMAIL
+gog-lite auth emergency-revoke --account EMAIL  # Google で refresh token を失効してから削除・ブロック
 ```
+
+`auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。
+
+Google が HTTP 200 を返すと、ローカルのトークンを削除し、policy の `blocked_accounts` にアカウントを追加する。終了コードは 0。
+
+```json
+{"revoked": true, "already_revoked": false, "blocked": true, "email": "you@gmail.com"}
+```
+
+HTTP 400 で `error` が `invalid_token` のとき（すでに無効、または失効直後の再実行）も失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
+
+通信失敗または HTTP 5xx のときは、終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加し、refresh token は再実行用に残す。`error` は「リモート失効に失敗した」で始まり、ローカルではブロック済みで再実行できることを示す。`invalid_token` 以外の拒否は終了コード 1 で、ローカル削除もブロックもしない。
+
+保存された refresh token が無いときは Google へ送らず、終了コード 3、同じ `code`。この場合も `blocked_accounts` には追加する。
+
+`--dry-run` は失効リクエストを送らない。確認用 JSON と監査ログだけを返し、削除もブロックもしない。
+
+```json
+{"dry_run": true, "action": "auth.emergency_revoke", "params": {"account": "you@gmail.com"}}
+```
+
+`auth remove` はローカルのトークンを削除するだけで、Google 側は失効しない。
 
 ### Gmail
 

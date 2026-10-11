@@ -32,6 +32,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `sheets update` と `sheets append` はセル値を既定で `RAW` として書き込む。数式や日付として解釈するのは `--value-input USER_ENTERED` を付けたときだけ
 - `sheets update` は `--confirm-write` と、既定では `--approval-token` を要求する。`--dry-run` ではどちらも不要
 - `--audit-log` と `--allowed-output-dir` は安全制御として扱う
+- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。通信失敗・5xx・トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
 
 ## Safety Controls
 
@@ -161,6 +162,32 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須アクション（`require_approval_actions` またはデフォルト）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
+- `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
+- HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。
+- HTTP 400 かつ本文の `error` が `invalid_token` のときは、すでに失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
+- 通信失敗または HTTP 5xx のときは終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
+- `invalid_token` 以外の拒否（HTTP 400 の別コードなど）は終了コード 1、`code` は `remote_revoke_failed`。ローカル削除もブロックもしない。トークンは残る。
+- 保存された refresh token が無いときは Google へ送らず、終了コード 3、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。
+- `--dry-run` は失効リクエストを送らず、ローカル削除もブロックもしない。確認用 JSON と監査ログだけを返す。終了コードは 0。
+- `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
+
+`auth emergency-revoke` の成功時（今回失効したとき）：
+
+```json
+{"revoked": true, "already_revoked": false, "blocked": true, "email": "you@gmail.com"}
+```
+
+すでに失効済み（HTTP 400 `invalid_token`）のとき：
+
+```json
+{"revoked": true, "already_revoked": true, "blocked": true, "email": "you@gmail.com"}
+```
+
+`--dry-run` のとき：
+
+```json
+{"dry_run": true, "action": "auth.emergency_revoke", "params": {"account": "you@gmail.com"}}
+```
 
 ---
 
@@ -588,6 +615,9 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | code | 終了コード | 意味 |
 |------|-----------|------|
 | `auth_required` | 2 | トークン未保存（`auth login` が必要） |
+| `remote_revoke_failed` | 1 | 通信失敗または HTTP 5xx。`blocked_accounts` に追加済み。refresh token は残る。再実行する |
+| `remote_revoke_failed` | 1 | `invalid_token` 以外の拒否。ローカル削除もブロックもしない |
+| `remote_revoke_failed` | 3 | 保存された refresh token がない。Google へは送らない。`blocked_accounts` には追加する |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
 | `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外のときもこれ |

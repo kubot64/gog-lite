@@ -339,6 +339,69 @@ jobs:
           assert d['code'] == 'invalid_arguments', f\"got code {d['code']}\"
           print('sheets-update-invalid-value-input: OK')
           "
+      - name: emergency-revoke blocks locally when no refresh token is stored
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth emergency-revoke --account test@example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 3 ]
+          [ ! -s "$out_json" ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
+          import json, os
+          d = json.load(open('$err_json'))
+          assert d['code'] == 'remote_revoke_failed', f\"got code {d['code']}\"
+          assert 'リモート失効に失敗した' in d.get('error', ''), d
+          assert 'ブロック済み' in d.get('error', ''), d
+          policy = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'policy.json')
+          p = json.load(open(policy))
+          blocked = p.get('blocked_accounts') or []
+          assert 'test@example.com' in blocked, blocked
+          print('emergency-revoke-no-token: OK')
+          "
+      - name: emergency-revoke dry-run does not block
+        run: |
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_KEYRING_BACKEND=file
+          export GOG_LITE_KEYRING_PASSWORD=ci-test-password
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite --dry-run auth emergency-revoke --account test@example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          [ -s "$out_json" ] || { echo "expected JSON on stdout"; exit 1; }
+          python3 -c "
+          import json, os
+          d = json.load(open('$out_json'))
+          assert d.get('dry_run') is True, d
+          assert d.get('action') == 'auth.emergency_revoke', d
+          assert d.get('params', {}).get('account') == 'test@example.com', d
+          policy = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'policy.json')
+          assert not os.path.exists(policy), policy
+          audit = os.path.join(os.environ['XDG_CONFIG_HOME'], 'gog-lite', 'audit.log')
+          line = open(audit).readline()
+          entry = json.loads(line)
+          assert entry.get('action') == 'auth.emergency_revoke', entry
+          assert entry.get('dry_run') is True, entry
+          print('emergency-revoke-dry-run: OK')
+          "
 
   security-nightly:
     name: Security Regression (nightly)
