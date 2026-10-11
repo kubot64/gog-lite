@@ -37,7 +37,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - 監査ログの追記には keyring が必要。失敗時の code は `audit_error`（終了コード 1）
 - 承認トークンの消費、書き込みレート制限の更新、監査ログの追記は、対象ごとのファイルロックの中で行う。ロックは保持しているプロセスが終了するまで有効である。5 秒以内に取れないとき、監査ログは `audit_error`（終了コード 1）、レート制限の更新は `rate_limited`（終了コード 1）、承認トークンの消費は `approval_required`（終了コード 4）。`error` には `acquire lock` と `timeout` が入る。この失敗では承認トークンは消費しない
 - ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` のときと、Linux でセッションバスが無いときの自動選択のどちらも同じ。未設定・空・空白のみは `keyring_error`（終了コード 1）。パスワードはプロンプトしない。セッションバスは `DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う
-- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。それ以外の失効失敗（通信失敗・5xx・`invalid_token` 以外の拒否）でも `blocked_accounts` へ追加し、トークンは残す。トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
+- `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。それ以外の失効失敗（通信失敗・5xx・`invalid_token` 以外の拒否）でも `blocked_accounts` へ追加し、トークンは残す。トークン無しでも `blocked_accounts` へ追加する。正規化したアドレスが既にあれば追加せず、再実行しても policy の内容は変わらない。`--dry-run` は失効リクエストを送らない
 - `gmail search` と `calendar list` の `--all-pages` は `--max-pages`（既定 10、1〜50）ページで止まる。続きがあるときは `nextPageToken` を返し、終了コードは 0。範囲外の `--max-pages` は `invalid_arguments`（終了コード 1）で、レート制限は消費しない
 
 ## Safety Controls
@@ -199,6 +199,7 @@ gog-lite --help
 - 通信失敗または HTTP 5xx のときは終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
 - `invalid_token` 以外の拒否（`invalid_client` など）は終了コード 1、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。refresh token は残す。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」「再実行」を含む。
 - 保存された refresh token が無いときは Google へ送らず、終了コード 3、`code` は `remote_revoke_failed`。`blocked_accounts` には追加する。
+- 正規化したアドレスがすでに `blocked_accounts` にあるときは追加しない。再実行しても policy の内容は変わらない。
 - `--dry-run` は失効リクエストを送らず、ローカル削除もブロックもしない。確認用 JSON と監査ログだけを返す。終了コードは 0。
 - `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
 - `auth login` の userinfo 取得は 30 秒で打ち切る。時間切れの code は `auth_exchange_error`（終了コード 1）。
