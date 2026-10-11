@@ -3,6 +3,7 @@ package googleauth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -239,24 +240,84 @@ func TestEmailFromUserInfo_Timeout(t *testing.T) {
 	if elapsed > time.Second {
 		t.Fatalf("userinfo hung for %s: %v", elapsed, err)
 	}
+	if _, ok := UserInfoFailureMessage(err); ok {
+		t.Fatalf("timeout was treated as an HTTP status failure: %v", err)
+	}
 }
 
-func TestEmailFromUserInfo_Unauthorized(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
-	}))
-	defer server.Close()
+func TestEmailFromUserInfo_NonOKOmitsBody(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+	const accessToken = "access-token-" + marker
 
-	old := oauthUserInfoEndpoint
-	oauthUserInfoEndpoint = server.URL
-	defer func() { oauthUserInfoEndpoint = old }()
-
-	_, err := emailFromUserInfo(context.Background(), &oauth2.Token{AccessToken: "test-token"})
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{
+			name:   "unauthorized oauth error",
+			status: http.StatusUnauthorized,
+			body:   `{"error":"invalid_token","error_description":"echo ` + marker + ` ` + accessToken + `"}`,
+		},
+		{
+			name:   "plain text",
+			status: http.StatusBadRequest,
+			body:   "invalid credentials " + marker + " " + accessToken,
+		},
+		{
+			name:   "server error",
+			status: http.StatusBadGateway,
+			body:   marker + " " + accessToken,
+		},
 	}
-	if !strings.Contains(err.Error(), "401") {
-		t.Fatalf("error = %q, want status 401", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("Authorization"); got != "Bearer "+accessToken {
+					t.Errorf("authorization = %q", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			t.Cleanup(server.Close)
+
+			restore := SetUserInfoEndpointForTest(server.URL)
+			t.Cleanup(restore)
+
+			_, err := emailFromUserInfo(context.Background(), &oauth2.Token{AccessToken: accessToken})
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			want := userInfoFailureText(tt.status)
+			if err.Error() != want {
+				t.Fatalf("error = %q, want %q", err.Error(), want)
+			}
+			wrapped := fmt.Errorf("extract email from userinfo: %w", err)
+			msg, ok := UserInfoFailureMessage(wrapped)
+			if !ok || msg != want {
+				t.Fatalf("UserInfoFailureMessage = %q, %v, want %q", msg, ok, want)
+			}
+			for _, secret := range []string{marker, accessToken, "error_description", tt.body} {
+				if secret != "" && strings.Contains(err.Error(), secret) {
+					t.Fatalf("error leaked %q: %q", secret, err.Error())
+				}
+				if secret != "" && strings.Contains(msg, secret) {
+					t.Fatalf("stderr text leaked %q: %q", secret, msg)
+				}
+			}
+		})
+	}
+}
+
+func TestUserInfoFailureMessage_OtherErrors(t *testing.T) {
+	if _, ok := UserInfoFailureMessage(errNoEmailInToken); ok {
+		t.Fatal("missing email was treated as an HTTP status failure")
+	}
+	wrapped := fmt.Errorf("extract email from userinfo: %w", errEmailNotVerified)
+	if _, ok := UserInfoFailureMessage(wrapped); ok {
+		t.Fatal("unverified email was treated as an HTTP status failure")
 	}
 }
 

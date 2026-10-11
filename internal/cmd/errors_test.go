@@ -51,6 +51,107 @@ func TestWriteGoogleAPIError_Unauthorized(t *testing.T) {
 	}
 }
 
+func TestWriteGoogleAPIError_UnauthorizedOmitsUnparsedBody(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+	body := `{"error":"invalid_token","error_description":"echo ` + marker + `"}`
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "direct",
+			err:  &gapi.Error{Code: http.StatusUnauthorized, Body: body},
+		},
+		{
+			name: "wrapped",
+			err:  fmt.Errorf("gmail labels: %w", &gapi.Error{Code: http.StatusUnauthorized, Body: body}),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var runErr error
+			stderr := captureStderr(t, func() {
+				runErr = writeGoogleAPIError("labels_error", tt.err)
+			})
+			if got := output.ExitCode(runErr); got != output.ExitCodeAuth {
+				t.Fatalf("exit code = %d, want %d", got, output.ExitCodeAuth)
+			}
+			assertErrorCode(t, stderr, "auth_required")
+			payload := decodeErrorPayload(t, stderr)
+			if payload.Error != "googleapi: got HTTP response code 401" {
+				t.Fatalf("error = %q", payload.Error)
+			}
+			if strings.Contains(stderr, marker) || strings.Contains(stderr, "error_description") || strings.Contains(stderr, "gmail labels") || strings.Contains(stderr, "with body") {
+				t.Fatalf("stderr leaked unauthorized body: %q", stderr)
+			}
+		})
+	}
+}
+
+func TestWriteGoogleAPIError_UnauthorizedParsedMessageOmitsBody(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+	apiErr := &gapi.Error{
+		Code:    http.StatusUnauthorized,
+		Message: "Invalid Credentials",
+		Body:    `{"error":{"code":401,"message":"Invalid Credentials"},"echo":"` + marker + `"}`,
+	}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = writeGoogleAPIError("get_error", fmt.Errorf("gmail labels: %w", apiErr))
+	})
+	if got := output.ExitCode(runErr); got != output.ExitCodeAuth {
+		t.Fatalf("exit code = %d, want %d", got, output.ExitCodeAuth)
+	}
+	assertErrorCode(t, stderr, "auth_required")
+	if !strings.Contains(stderr, "Invalid Credentials") {
+		t.Fatalf("stderr = %q, want parsed message", stderr)
+	}
+	if strings.Contains(stderr, marker) || strings.Contains(stderr, "with body") {
+		t.Fatalf("stderr leaked response body: %q", stderr)
+	}
+}
+
+func TestWriteGoogleAPIError_UnauthorizedFromUnparsedClient(t *testing.T) {
+	const marker = "leak-marker-9f3c2a"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_token","error_description":"echo ` + marker + `"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	svc, err := gmail.NewService(context.Background(),
+		option.WithEndpoint(server.URL+"/"),
+		option.WithoutAuthentication(),
+		option.WithHTTPClient(server.Client()),
+	)
+	if err != nil {
+		t.Fatalf("gmail.NewService: %v", err)
+	}
+
+	_, err = svc.Users.Labels.List("me").Do()
+	if err == nil {
+		t.Fatal("expected gmail client error, got nil")
+	}
+
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = writeGoogleAPIError("labels_error", fmt.Errorf("gmail labels: %w", err))
+	})
+	if got := output.ExitCode(runErr); got != output.ExitCodeAuth {
+		t.Fatalf("exit code = %d, want %d (err=%v)", got, output.ExitCodeAuth, err)
+	}
+	assertErrorCode(t, stderr, "auth_required")
+	payload := decodeErrorPayload(t, stderr)
+	if payload.Error != "googleapi: got HTTP response code 401" {
+		t.Fatalf("error = %q (stderr %q)", payload.Error, stderr)
+	}
+	if strings.Contains(stderr, marker) || strings.Contains(stderr, "error_description") || strings.Contains(stderr, "with body") {
+		t.Fatalf("stderr leaked unauthorized body: %q", stderr)
+	}
+}
+
 func TestWriteGoogleAPIError_UnauthorizedWrapped(t *testing.T) {
 	var runErr error
 	stderr := captureStderr(t, func() {

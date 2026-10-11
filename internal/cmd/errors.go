@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	gapi "google.golang.org/api/googleapi"
 
 	"github.com/kubot64/gog-lite/internal/googleapi"
+	"github.com/kubot64/gog-lite/internal/googleauth"
 	"github.com/kubot64/gog-lite/internal/output"
 )
 
@@ -50,7 +52,9 @@ func writeGoogleAPIError(defaultCode string, err error) error {
 		switch apiErr.Code {
 		case http.StatusUnauthorized:
 			// Google rejected the token. Agents treat this like a missing token and log in again.
-			return output.WriteError(output.ExitCodeAuth, "auth_required", err.Error())
+			// A parsed message is kept. An unparsed body is not: it can be an
+			// OAuth error document that echoes a token in error_description.
+			return output.WriteError(output.ExitCodeAuth, "auth_required", formatUnauthorizedAPIError(err, apiErr))
 		case http.StatusNotFound:
 			return output.WriteError(output.ExitCodeNotFound, "not_found", err.Error())
 		case http.StatusForbidden:
@@ -89,13 +93,27 @@ func formatTokenEndpointFailure(retrieve *oauth2.RetrieveError) string {
 	return tokenEndpointFailureMessage + " (" + code + ")"
 }
 
+// formatUnauthorizedAPIError is the stderr text for a Google API HTTP 401.
+// googleapi.Error.Error copies the raw body when the response has no parsed
+// message. That body is dropped. A parsed message is left as err.Error().
+func formatUnauthorizedAPIError(err error, apiErr *gapi.Error) string {
+	if apiErr != nil && apiErr.Message == "" && len(apiErr.Errors) == 0 && apiErr.Body != "" {
+		return fmt.Sprintf("googleapi: got HTTP response code %d", apiErr.Code)
+	}
+	return err.Error()
+}
+
 // authExchangeErrorMessage is the stderr text for auth login step 2.
 // A token endpoint response uses formatTokenEndpointFailure, which keeps only
 // shortTokenEndpointCode. invalid_grant is not rewritten to auth_required.
-// Other failures (state mismatch, userinfo, transport) keep err.Error().
+// A non-200 userinfo response uses UserInfoFailureMessage, which keeps only
+// the HTTP status. Other failures (state mismatch, transport) keep err.Error().
 func authExchangeErrorMessage(err error) string {
 	if retrieve, ok := retrieveError(err); ok {
 		return formatTokenEndpointFailure(retrieve)
+	}
+	if msg, ok := googleauth.UserInfoFailureMessage(err); ok {
+		return msg
 	}
 	return err.Error()
 }

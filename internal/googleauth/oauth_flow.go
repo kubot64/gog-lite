@@ -45,6 +45,41 @@ func SetOAuthEndpointForTest(endpoint oauth2.Endpoint) (restore func()) {
 	return func() { oauthEndpoint = prev }
 }
 
+// SetUserInfoEndpointForTest points the OpenID userinfo call at endpoint
+// until restore is called.
+func SetUserInfoEndpointForTest(endpoint string) (restore func()) {
+	prev := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = endpoint
+	return func() { oauthUserInfoEndpoint = prev }
+}
+
+// userInfoStatusError is a non-200 OpenID userinfo response. The body is not
+// retained: it can echo the access token or an error_description.
+type userInfoStatusError struct {
+	status int
+}
+
+func (e *userInfoStatusError) Error() string {
+	return userInfoFailureText(e.status)
+}
+
+const userInfoFailurePrefix = "userinfo request failed"
+
+func userInfoFailureText(status int) string {
+	return fmt.Sprintf("%s (HTTP %d)", userInfoFailurePrefix, status)
+}
+
+// UserInfoFailureMessage is the stderr text for a non-200 userinfo response.
+// It is the fixed sentence plus the HTTP status. The response body is not
+// included. ok is false when err is a different failure.
+func UserInfoFailureMessage(err error) (string, bool) {
+	var statusErr *userInfoStatusError
+	if !errors.As(err, &statusErr) || statusErr == nil {
+		return "", false
+	}
+	return statusErr.Error(), true
+}
+
 const (
 	oauthUserInfoBodyLimit = 1 << 20
 	// userInfoTimeout bounds the OpenID userinfo call. http.DefaultClient has
@@ -503,8 +538,9 @@ func emailFromUserInfo(ctx context.Context, tok *oauth2.Token) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, oauthUserInfoBodyLimit))
-		return "", fmt.Errorf("userinfo status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		// Discard the body. It is not part of the error.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, oauthUserInfoBodyLimit))
+		return "", &userInfoStatusError{status: resp.StatusCode}
 	}
 
 	var claims struct {
