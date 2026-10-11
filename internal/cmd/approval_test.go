@@ -111,6 +111,71 @@ func TestConsumeApprovalToken_RejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestConsumeApprovalToken_DoesNotStealAgedLock(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	token, _, err := issueApprovalToken("you@example.com", "calendar.delete", time.Minute)
+	if err != nil {
+		t.Fatalf("issueApprovalToken: %v", err)
+	}
+	path, err := approvalTokenPath(token)
+	if err != nil {
+		t.Fatalf("approvalTokenPath: %v", err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := withFileLock(path, func() error {
+			close(started)
+			<-release
+			return nil
+		})
+		if err != nil {
+			t.Errorf("holder: %v", err)
+		}
+	}()
+	<-started
+
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path+".lock", old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	setLockAcquireTimeout(t, 200*time.Millisecond)
+
+	err = consumeApprovalToken("you@example.com", "calendar.delete", token)
+	if err == nil || !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("consume while held = %v, want timeout", err)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read token: %v", err)
+	}
+	var st approvalTokenState
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("decode token: %v", err)
+	}
+	if st.Used {
+		t.Fatal("timed-out consume marked the token used")
+	}
+
+	close(release)
+	wg.Wait()
+
+	if err := consumeApprovalToken("you@example.com", "calendar.delete", token); err != nil {
+		t.Fatalf("consume after release: %v", err)
+	}
+	if err := consumeApprovalToken("you@example.com", "calendar.delete", token); err == nil {
+		t.Fatal("expected a second consume to fail")
+	}
+}
+
 func TestConsumeApprovalToken_ConcurrentSingleSuccess(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
