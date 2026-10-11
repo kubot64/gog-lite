@@ -1,6 +1,6 @@
 # gog-lite
 
-AIエージェントが Gmail / Google Calendar / Google Docs を操作するためのシンプルな CLI。
+AIエージェントが Gmail / Google Calendar / Google Docs / Google Sheets / Google Slides を操作するためのシンプルな CLI。
 
 [gogcli](https://github.com/steipete/gogcli) の多機能さをAIエージェント向けに絞り込んだ派生版。
 
@@ -114,7 +114,7 @@ brew install actionlint
 [Google Cloud Console](https://console.cloud.google.com/) で以下を行う：
 
 1. プロジェクトを作成（または既存を使用）
-2. 必要なAPIを有効化：Gmail API / Google Calendar API / Google Docs API / Google Drive API
+2. 必要なAPIを有効化：Gmail API / Google Calendar API / Google Docs API / Google Drive API / Google Sheets API / Google Slides API
 3. 「Google Auth Platform」→「OAuth 同意画面（Audience）」でアプリ情報を入力
 4. 外部ユーザー（External）でテスト中の場合は「Test users」に利用アカウントを追加
 5. 「認証情報」→「OAuthクライアントID」を作成（種類：**デスクトップアプリ**）
@@ -137,6 +137,8 @@ security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_ID -w '<YOUR_CLIENT_
 security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_SECRET -w '<YOUR_CLIENT_SECRET>' -U
 ```
 
+gog-lite が Keychain から読むときは `/usr/bin/security` を使う。PATH 上の `security` は見ない。
+
 8. Keychain 登録後は `credentials.json` を削除してよい（環境変数と Keychain を優先参照）：
 
 ```bash
@@ -157,7 +159,9 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 
 ブラウザで `auth_url` を開いて認証する。認証後、ブラウザは `http://127.0.0.1:PORT/oauth2/callback?code=...` に戻る。ステップ 1 はそのポートを最大 10 分つかんだままにするので、URL のコピーを案内するページが開く。ページが開かない場合でも、アドレスバーの URL をコピーすればよい。
 
-ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。
+ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じリダイレクト URL でステップ 2 を再実行できる。
+
+`--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 
 > `エラー 403: access_denied` が出る場合は、OAuth 同意画面の Test users に該当 Gmail を追加してください。
 
@@ -202,6 +206,8 @@ gog-lite auth preflight --account EMAIL --require-actions gmail.draft,calendar.c
 gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
 gog-lite auth emergency-revoke --account EMAIL  # Google で refresh token を失効してから削除・ブロック
 ```
+
+`auth approval-token` の `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンはファイル名が違うため使えません。`auth approval-token` を発行し直してください。トークンが `-` で始まるときは `--approval-token=TOKEN` の形で渡す。
 
 `auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。
 

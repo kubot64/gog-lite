@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -82,6 +85,41 @@ func TestApprovalToken_ActionMismatch(t *testing.T) {
 	}
 	if err := consumeApprovalToken("a@example.com", "docs.write.replace", token); err == nil {
 		t.Fatal("expected action mismatch to be rejected")
+	}
+}
+
+func TestApprovalTokenPath_FilenameIsHash(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	token, _, err := issueApprovalToken("you@example.com", "calendar.delete", time.Minute)
+	if err != nil {
+		t.Fatalf("issueApprovalToken: %v", err)
+	}
+
+	path, err := approvalTokenPath(token)
+	if err != nil {
+		t.Fatalf("approvalTokenPath: %v", err)
+	}
+
+	sum := sha256.Sum256([]byte(token))
+	want := hex.EncodeToString(sum[:]) + ".json"
+	if got := filepath.Base(path); got != want {
+		t.Fatalf("filename = %q, want %q", got, want)
+	}
+	if strings.Contains(filepath.Base(path), token) {
+		t.Fatalf("filename %q contains the token", filepath.Base(path))
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("read approvals dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), token) {
+			t.Fatalf("directory entry %q contains the token", entry.Name())
+		}
 	}
 }
 

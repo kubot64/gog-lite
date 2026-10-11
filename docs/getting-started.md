@@ -37,7 +37,7 @@ gog-lite --version
 
 ## 2. Google Cloud でアプリを登録する
 
-gog-lite は Google の OAuth を使って Gmail / Calendar / Docs にアクセスします。
+gog-lite は Google の OAuth を使って Gmail / Calendar / Docs / Sheets / Slides にアクセスします。
 最初に一度だけ Google Cloud Console での設定が必要です。
 
 ### 2-1. プロジェクトを作成する
@@ -55,6 +55,8 @@ gog-lite は Google の OAuth を使って Gmail / Calendar / Docs にアクセ�
 | メール操作 | Gmail API |
 | カレンダー操作 | Google Calendar API |
 | ドキュメント操作 | Google Docs API・Google Drive API |
+| スプレッドシート操作 | Google Sheets API |
+| プレゼンテーション操作 | Google Slides API |
 
 ### 2-3. OAuth クライアントを作成する
 
@@ -94,6 +96,8 @@ security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_ID -w '<YOUR_CLIENT_
 security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_SECRET -w '<YOUR_CLIENT_SECRET>' -U
 ```
 
+gog-lite が Keychain から読むときは `/usr/bin/security` を使う。PATH 上の `security` は見ない。
+
 > `YOUR_CLIENT_ID` / `YOUR_CLIENT_SECRET` はダウンロードした JSON の値を使用してください。
 
 ---
@@ -113,7 +117,7 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 ```json
 {
   "auth_url": "https://accounts.google.com/o/oauth2/auth?...",
-  "next_step": "Open auth_url in a browser, then run this command again with --auth-url <redirect_url>"
+  "next_step": "run again with --auth-url <redirect URL from browser>"
 }
 ```
 

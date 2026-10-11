@@ -94,7 +94,7 @@ jobs:
           mkdir -p Formula
           {
             printf 'class GogLite < Formula\n'
-            printf '  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs"\n'
+            printf '  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs / Google Sheets / Google Slides"\n'
             printf '  homepage "https://github.com/%s"\n' "$REPO"
             printf '  version "%s"\n' "$VERSION"
             printf '  license "MIT"\n'

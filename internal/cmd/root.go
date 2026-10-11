@@ -47,7 +47,7 @@ func Execute(ctx context.Context, version string) error {
 
 	k, err := kong.New(cli,
 		kong.Name("gog-lite"),
-		kong.Description("AI-agent-friendly CLI for Gmail, Calendar, and Docs."),
+		kong.Description("AI-agent-friendly CLI for Gmail, Calendar, Docs, Sheets, and Slides."),
 		kong.NoDefaultHelp(),
 		kong.UsageOnError(),
 		kong.Writers(&parserStdout, &parserStderr),

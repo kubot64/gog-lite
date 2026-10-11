@@ -320,6 +320,31 @@ func TestExecute_HelpReturnsJSON(t *testing.T) {
 	if !strings.Contains(payload.Help, "Usage:") {
 		t.Fatalf("help payload missing usage: %q", payload.Help)
 	}
+	if !strings.Contains(payload.Help, "Docs, Sheets, and Slides") {
+		t.Fatalf("help description omits Sheets/Slides: %q", payload.Help)
+	}
+}
+
+func TestExecute_LoginHelpListsSheetsAndSlides(t *testing.T) {
+	prevArgs := os.Args
+	defer func() { os.Args = prevArgs }()
+	os.Args = []string{"gog-lite", "auth", "login", "--help"}
+
+	stdout := captureStdout(t, func() {
+		if err := Execute(context.Background(), "dev"); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	})
+
+	var payload struct {
+		Help string `json:"help"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if !strings.Contains(payload.Help, "sheets") || !strings.Contains(payload.Help, "slides") {
+		t.Fatalf("login help omits sheets/slides: %q", payload.Help)
+	}
 }
 
 func TestExecute_SearchHelpIncludesMaxPages(t *testing.T) {

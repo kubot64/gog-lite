@@ -427,9 +427,6 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 		return Step2Result{}, fmt.Errorf("state mismatch or expired state; run step 1 again")
 	}
 
-	// Clean up state file after successful load.
-	defer func() { _ = clearManualState(st.State) }()
-
 	// Use stored redirect URI if available (more reliable), otherwise use parsed one.
 	if st.RedirectURI != "" {
 		redirectURI = st.RedirectURI
@@ -464,6 +461,10 @@ func Step2(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 	if err != nil {
 		return Step2Result{}, fmt.Errorf("extract email from userinfo: %w", err)
 	}
+
+	// Drop the state only after the code exchange and userinfo both succeed.
+	// A network failure leaves the file so the same redirect URL can be retried.
+	_ = clearManualState(st.State)
 
 	return Step2Result{
 		RefreshToken: tok.RefreshToken,
