@@ -11,14 +11,14 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 - **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いときと、Google API が HTTP 401 を返したとき
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
 - **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
-- **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる
+- **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる。`docs write --replace` では `--confirm-replace` も承認トークンも要らない
 - **`gmail send` は下書き保存契約** — 即時送信ではなく Gmail draft として保存する
 
 ## Safety Controls
 
 - `--dry-run` — 書き込み前の事前確認
 - `--audit-log` — 書き込み操作の JSONL 監査ログ。新規行は keyring の HMAC 鍵で鎖をつなぐ
-- `--allowed-output-dir` — ファイル出力先ディレクトリ制限
+- `--allowed-output-dir` — ファイル出力先ディレクトリ制限。外への `docs export` は終了コード 4（`output_not_allowed`）。`--dry-run` でも同じ
 - `--confirm-*` — 破壊的操作の明示確認
 - `--approval-token` — 高リスク操作の追加承認。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
 
@@ -283,7 +283,9 @@ gog-lite docs cat  --account you@gmail.com --doc-id DOC_ID
 # 新規作成
 gog-lite docs create --account you@gmail.com --title "新しいドキュメント"
 
-# 内容の書き込み（--replace で全置換）
+# 内容の書き込み（--replace で全置換。--dry-run では確認フラグと承認トークンは不要）
+gog-lite --dry-run docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace
+
 gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token TOKEN
 
 # エクスポート

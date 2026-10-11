@@ -199,6 +199,41 @@ func TestSheetsUpdateCmd_DryRunDoesNotConsumeRateLimit(t *testing.T) {
 	}
 }
 
+func TestDocsWriteCmd_DryRunDoesNotConsumeRateLimit(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("GOG_LITE_CLIENT_ID", "")
+	t.Setenv("GOG_LITE_CLIENT_SECRET", "")
+
+	orig := writeRateLimitPerMinute
+	writeRateLimitPerMinute = 1
+	t.Cleanup(func() { writeRateLimitPerMinute = orig })
+
+	cmd := &DocsWriteCmd{
+		Account: "a@example.com",
+		DocID:   "doc",
+		Content: "hello",
+		Replace: true,
+	}
+	for i := 0; i < 2; i++ {
+		if err := cmd.Run(context.Background(), &RootFlags{DryRun: true}); err != nil {
+			t.Fatalf("dry-run %d: %v", i, err)
+		}
+	}
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err == nil {
+		t.Fatal("expected a confirmation error, not success")
+	}
+	if code := stderrErrorCode(t, stderr); code != "replace_requires_confirmation" {
+		t.Fatalf("code = %q, want replace_requires_confirmation (stderr %s)", code, stderr)
+	}
+}
+
 func TestRateLimitDoesNotConsumeApprovalToken(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
