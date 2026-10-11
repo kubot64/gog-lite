@@ -8,6 +8,7 @@ on:
   schedule:
     # Security regression nightly at 02:00 UTC
     - cron: '0 2 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,8 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Validate action refs are resolvable
-        run: ./scripts/check-action-refs.sh
+      - name: Validate action refs and version comments
+        run: |
+          ./scripts/check-action-refs_test.sh
+          ./scripts/check-action-refs.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -406,7 +409,7 @@ jobs:
   security-nightly:
     name: Security Regression (nightly)
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -446,3 +449,20 @@ jobs:
           name: security-test-results
           path: /tmp/gog-lite-security-*.log
           if-no-files-found: ignore
+
+  # Public repositories disable schedule after 60 days without activity.
+  # Re-enable from this job only; an empty commit would fight branch protection.
+  keepalive:
+    name: Keep scheduled workflows enabled
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable scheduled workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api -X PUT "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/enable"
+          gh api -X PUT "/repos/${GITHUB_REPOSITORY}/actions/workflows/codeql.yml/enable"

@@ -7,6 +7,7 @@ on:
     branches: [main]
   schedule:
     - cron: '0 3 * * 1'
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -30,3 +31,20 @@ jobs:
       - uses: github/codeql-action/analyze@c10b8064de6f491fea524254123dbe5e09572f13 # v4
         with:
           category: "/language:${{ matrix.language }}"
+
+  # Public repositories disable schedule after 60 days without activity.
+  # Re-enable from this job only so analyze does not gain actions: write on push/PR.
+  keepalive:
+    name: Keep scheduled workflows enabled
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable scheduled workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api -X PUT "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/enable"
+          gh api -X PUT "/repos/${GITHUB_REPOSITORY}/actions/workflows/codeql.yml/enable"
