@@ -420,6 +420,60 @@ func TestServeCallback_DoesNotEchoCode(t *testing.T) {
 	}
 }
 
+func TestStep2_KeepsStateWhenExchangeFails(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	oldTimeout := callbackHoldTimeout
+	callbackHoldTimeout = 30 * time.Second
+	t.Cleanup(func() { callbackHoldTimeout = oldTimeout })
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	oldEndpoint := oauthEndpoint
+	oauthEndpoint = oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/auth", TokenURL: tokenSrv.URL}
+	t.Cleanup(func() { oauthEndpoint = oldEndpoint })
+
+	creds := config.ClientCredentials{ClientID: "client-id", ClientSecret: "client-secret"}
+	opts := AuthorizeOptions{Scopes: []string{"email"}}
+
+	step1, err := Step1(context.Background(), creds, opts)
+	if err != nil {
+		t.Fatalf("Step1: %v", err)
+	}
+
+	authURL, err := url.Parse(step1.AuthURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authURL.Query().Get("state")
+	path, err := manualStatePath(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	redirectURL := authURL.Query().Get("redirect_uri") + "?code=auth-code&state=" + url.QueryEscape(state)
+	if _, err := Step2(context.Background(), creds, opts, redirectURL); err == nil {
+		t.Fatal("expected exchange failure")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("state file removed after failed exchange: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("failed exchange rewrote the state file")
+	}
+}
+
 func TestStep1AndStep2_PKCEAndHeldPort(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("HOME", configHome)

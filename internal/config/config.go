@@ -14,6 +14,8 @@ const (
 	AppName            = "gog-lite"
 	clientIDEnvVar     = "GOG_LITE_CLIENT_ID"     //nolint:gosec
 	clientSecretEnvVar = "GOG_LITE_CLIENT_SECRET" //nolint:gosec
+	// securityBinary is absolute so a PATH entry cannot stand in for the Keychain helper.
+	securityBinary = "/usr/bin/security"
 )
 
 var (
@@ -214,7 +216,7 @@ func defaultLookupKeychainItem(service string) (string, error) {
 		return "", fmt.Errorf("USER environment variable is empty")
 	}
 
-	cmd := exec.Command("security", "find-generic-password", "-a", user, "-s", service, "-w")
+	cmd := exec.Command(securityBinary, "find-generic-password", "-a", user, "-s", service, "-w")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

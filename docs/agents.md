@@ -110,7 +110,7 @@ $HOME/Library/Application Support/gog-lite/credentials.json
 
 External のテスト中アプリでは、OAuth 同意画面の Test users に利用アカウント追加が必要。
 macOS では `GOG_LITE_CLIENT_ID` / `GOG_LITE_CLIENT_SECRET` を Keychain に保存して
-`credentials.json` を削除する運用も可能。
+`credentials.json` を削除する運用も可能。読み出しは `/usr/bin/security` で、PATH 上の `security` は見ない。
 
 ### 2. アカウント認証（2ステップ）
 
@@ -132,7 +132,9 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 ステップ 1 はそのポートを最大 10 分つかむので、コピーを案内するページが開くことがある。
 ページが開かなくても、アドレスバーの URL をコピーする。
 
-ステップ 1 は `auth_url` の JSON を出して終了する。ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。
+ステップ 1 は `auth_url` の JSON を出して終了する。ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じ `--auth-url` でステップ 2 を再実行できる。
+
+`--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 
 すでに保存したトークンは、現在より広いスコープを持っている。同意の取り直しだけではスコープは減らない。Google アカウントのサードパーティ アクセスからこのクライアントを削除し、`auth remove` のあと `auth login --force-consent` でやり直す。手順は README の「スコープを狭めたあとの再認証」。
 
@@ -189,6 +191,7 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須（既定に `require_approval_actions` を足し、`exempt_approval_actions` で外した既定を除いた集合。両方にあるときは承認必須）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
+- 発行された `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。トークンが `-` で始まるときは `--approval-token=TOKEN` の形で渡す。
 - `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
 - HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。
 - HTTP 400 かつ本文の `error` が `invalid_token` のときは、すでに失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。

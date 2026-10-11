@@ -32,7 +32,7 @@ type AuthCmd struct {
 // Step 2 (--auth-url set): exchanges code, stores token, prints {"stored": true, ...}
 type AuthLoginCmd struct {
 	Account      string `name:"account" required:"" short:"a" help:"Google account email."`
-	Services     string `name:"services" default:"gmail,calendar,docs" help:"Comma-separated services to authorize (gmail,calendar,docs,drive)."`
+	Services     string `name:"services" default:"gmail,calendar,docs" help:"Comma-separated services to authorize (gmail, calendar, docs, drive, sheets, slides)."`
 	AuthURL      string `name:"auth-url" help:"Redirect URL from browser (step 2)."`
 	ForceConsent bool   `name:"force-consent" help:"Force Google consent screen (re-requests refresh token)."`
 }

@@ -269,7 +269,9 @@ jobs:
           export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
-          token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token}.json"
+          token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+          token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token_hash}.json"
+          [ ! -e "$XDG_CONFIG_HOME/gog-lite/approvals/${token}.json" ] || { echo "approval token filename is the token"; exit 1; }
           [ -s "$token_file" ] || { echo "approval token file was not written"; exit 1; }
           python3 -c "
           import json, sys

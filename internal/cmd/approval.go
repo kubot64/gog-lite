@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -141,7 +143,8 @@ func approvalTokenPath(token string) (string, error) {
 		return "", fmt.Errorf("resolve approvals dir: %w", err)
 	}
 
-	candidate := filepath.Join(baseAbs, token+".json")
+	// The filename is a hash so a directory listing does not reveal the token.
+	candidate := filepath.Join(baseAbs, approvalTokenFilename(token))
 	candidateAbs, err := filepath.Abs(candidate)
 	if err != nil {
 		return "", fmt.Errorf("resolve approval token path: %w", err)
@@ -153,6 +156,12 @@ func approvalTokenPath(token string) (string, error) {
 	}
 
 	return candidateAbs, nil
+}
+
+func approvalTokenFilename(token string) string {
+	sum := sha256.Sum256([]byte(token))
+
+	return hex.EncodeToString(sum[:]) + ".json"
 }
 
 func randomToken() (string, error) {
