@@ -61,9 +61,23 @@ jobs:
           path: /tmp/gog-lite-test-*.log
           if-no-files-found: ignore
 
+  staticcheck:
+    name: staticcheck
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+      # U1000 / S1001 are tracked in #78 and stay excluded until that cleanup lands.
+      - name: Run staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 -checks 'inherit,-U1000,-S1001' ./...
+
+  # PR and push keep the merge-time gate from #68. The 02:00 UTC schedule runs the
+  # same scan so a new vulnerability database entry is not waiting on the next PR.
   govulncheck:
     name: govulncheck
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -219,6 +233,15 @@ jobs:
           check_policy_denied \
             "/tmp/gog-lite docs export --account test@example.com --doc-id x --format pdf --output /tmp/out.pdf" \
             "docs.export"
+          check_policy_denied \
+            "/tmp/gog-lite sheets update --account test@example.com --spreadsheet-id x --range 'Sheet1!A1' --values '[[\"a\"]]'" \
+            "sheets.update"
+          check_policy_denied \
+            "/tmp/gog-lite sheets append --account test@example.com --spreadsheet-id x --range Sheet1 --values '[[\"a\"]]'" \
+            "sheets.append"
+          check_policy_denied \
+            "/tmp/gog-lite slides write --account test@example.com --presentation-id x --find a --replace b" \
+            "slides.write"
       - name: approval-token required when missing
         run: |
           HOME=$(mktemp -d)
@@ -247,37 +270,50 @@ jobs:
           export GOG_LITE_KEYRING_PASSWORD=ci-test-password
           token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
-          echo "issued token"
-          # First use: token is consumed; command then fails at auth (no real credentials).
+          token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token}.json"
+          [ -s "$token_file" ] || { echo "approval token file was not written"; exit 1; }
+          python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d.get('used') is False, {'used': d.get('used')}
+          print('approval-token-issued-unused: OK')
+          " "$token_file"
+          # First use consumes the token, then fails at auth (no real credentials).
+          first_out=$(mktemp)
+          first_err=$(mktemp)
           /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-            --approval-token "$token" 2>/dev/null && true || true
-          # Second use: token already used → approval_required.
-          check_reuse() {
-            out_json=$(mktemp)
-            err_json=$(mktemp)
-            /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
-              --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
-            echo "exit code: $code"
-            [ "$code" -ne 0 ] || return 1
-            [ -s "$err_json" ] || return 1
-            python3 -c "
+            --approval-token "$token" >"$first_out" 2>"$first_err" && first_code=0 || first_code=$?
+          echo "first use exit code: $first_code"
+          echo "first use stderr:"
+          cat "$first_err"
+          python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d.get('used') is True, {'used': d.get('used')}
+          print('approval-token-marked-used: OK')
+          " "$token_file" || {
+            echo "approval token file was not marked used"
+            echo "first use stdout:"
+            cat "$first_out"
+            exit 1
+          }
+          # Second use: the stored token is already used → approval_required.
+          # No retry. A mismatch prints this stderr instead of sleeping over it.
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite calendar delete --account test@example.com --event-id x --confirm-delete \
+            --approval-token "$token" >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "reuse exit code: $code"
+          echo "reuse stderr:"
+          cat "$err_json"
+          [ "$code" -ne 0 ]
+          [ -s "$err_json" ] || { echo "expected JSON error but stderr was empty"; exit 1; }
+          python3 -c "
           import json
           d = json.load(open('$err_json'))
-          assert d['code'] == 'approval_required', f\"got code {d['code']}\"
+          assert d['code'] == 'approval_required', d
           print('approval-token-reuse: OK')
-            "
-          }
-
-          ok=0
-          for i in 1 2; do
-            if check_reuse; then
-              ok=1
-              break
-            fi
-            echo "retry approval-token reuse check ($i)"
-            sleep 1
-          done
-          [ "$ok" -eq 1 ] || { echo "approval-token reuse check failed after retry"; exit 1; }
+          "
       - name: dry-run skips confirm and approval-token
         run: |
           HOME=$(mktemp -d)

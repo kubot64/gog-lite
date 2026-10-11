@@ -469,7 +469,9 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 | ジョブ | トリガー | 内容 |
 |---|---|---|
 | `unit-fast` | PR / push | `go test ./...` + vet でユニットテストを高速実行 |
-| `integration-cli` | PR / push | 実バイナリを temp HOME で実行し、policy_denied・approval_required・preflight スキーマなどの結合挙動を検証 |
+| `staticcheck` | PR / push | `staticcheck`。未使用コード（U1000）と `copy` にできるループ（S1001）は別対応まで除外 |
+| `govulncheck` | PR / push / 毎日 02:00 UTC | 呼び出し経路上の脆弱性をスキャン |
+| `integration-cli` | PR / push | 実バイナリを temp HOME で実行し、policy_denied（Sheets / Slides を含む）・approval_required・preflight スキーマなどの結合挙動を検証 |
 | `security-nightly` | 毎日 02:00 UTC | 監査ログ改ざん検知・承認トークン再利用・stdin 上限・キーリング設定ミスの回帰テスト |
 
 失敗時は JSON エラー本文を GitHub Actions Artifacts に保存します。
