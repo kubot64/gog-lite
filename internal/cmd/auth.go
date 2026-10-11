@@ -23,7 +23,7 @@ type AuthCmd struct {
 	Remove          AuthRemoveCmd          `cmd:"" help:"Remove a stored account token."`
 	Preflight       AuthPreflightCmd       `cmd:"" help:"Check readiness for AI-agent operations."`
 	ApprovalToken   AuthApprovalTokenCmd   `cmd:"" help:"Issue one-time approval token for dangerous actions."`
-	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token and block the account. Delete the local token only when revoke is confirmed."`
+	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token and block the account. Delete the local token only when revoke is confirmed. An address already in blocked_accounts is not added again."`
 }
 
 // AuthLoginCmd implements the 2-step headless OAuth flow.
@@ -420,9 +420,17 @@ func finishEmergencyRevoke(store *secrets.Store, root *RootFlags, account string
 }
 
 func blockAccount(account string) error {
+	account = normalizeEmail(account)
 	p, err := config.ReadPolicy()
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	// ReadPolicy already stores normalized addresses. Skip the write so a retry
+	// does not duplicate the entry or rewrite policy.json.
+	for _, blocked := range p.BlockedAccounts {
+		if blocked == account {
+			return nil
+		}
 	}
 	p.BlockedAccounts = append(p.BlockedAccounts, account)
 	if err := config.WritePolicy(p); err != nil {

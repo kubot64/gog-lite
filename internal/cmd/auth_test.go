@@ -579,6 +579,124 @@ func TestEmergencyRevokeCmd_DryRunSkipsRevoke(t *testing.T) {
 	}
 }
 
+func TestEmergencyRevokeCmd_RerunDoesNotChangePolicy(t *testing.T) {
+	setupFileKeyring(t)
+	account := "victim@example.com"
+	const refreshToken = "dummy-refresh"
+
+	store := openTestStore(t)
+	if err := store.SetToken(account, secrets.Token{RefreshToken: refreshToken}); err != nil {
+		t.Fatalf("SetToken: %v", err)
+	}
+
+	stubRevoke(t, func(context.Context, string) error {
+		return fmt.Errorf("%w: HTTP 400 invalid_client", googleauth.ErrRevokeRejected)
+	})
+
+	run := func() {
+		t.Helper()
+		cmd := &AuthEmergencyRevokeCmd{Account: "Victim@Example.com"}
+		var err error
+		stderr := captureStderr(t, func() {
+			err = cmd.Run(context.Background(), &RootFlags{})
+		})
+		if output.ExitCode(err) != output.ExitCodeError {
+			t.Fatalf("exit code = %d, want %d", output.ExitCode(err), output.ExitCodeError)
+		}
+		payload := decodeErrorPayload(t, stderr)
+		if payload.Code != "remote_revoke_failed" {
+			t.Fatalf("code = %q, want %q", payload.Code, "remote_revoke_failed")
+		}
+	}
+
+	run()
+
+	path, err := config.PolicyPath()
+	if err != nil {
+		t.Fatalf("PolicyPath: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read policy: %v", err)
+	}
+
+	run()
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read policy: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("policy changed on rerun\nbefore: %s\nafter: %s", before, after)
+	}
+
+	p, err := config.ReadPolicy()
+	if err != nil {
+		t.Fatalf("ReadPolicy: %v", err)
+	}
+	count := 0
+	for _, blocked := range p.BlockedAccounts {
+		if blocked == account {
+			count++
+		}
+	}
+	if count != 1 || len(p.BlockedAccounts) != 1 {
+		t.Fatalf("blocked_accounts = %v, want [%s]", p.BlockedAccounts, account)
+	}
+
+	got, err := store.GetToken(account)
+	if err != nil {
+		t.Fatalf("local token was deleted: %v", err)
+	}
+	if got.RefreshToken != refreshToken {
+		t.Fatalf("refresh token = %q, want %q", got.RefreshToken, refreshToken)
+	}
+}
+
+func TestEmergencyRevokeCmd_AlreadyBlockedLeavesPolicyUnchanged(t *testing.T) {
+	setupFileKeyring(t)
+	account := "victim@example.com"
+
+	if _, err := config.EnsureDir(); err != nil {
+		t.Fatalf("EnsureDir: %v", err)
+	}
+	path, err := config.PolicyPath()
+	if err != nil {
+		t.Fatalf("PolicyPath: %v", err)
+	}
+	raw := []byte("{\n  \"blocked_accounts\": [\"Victim@Example.com\", \"other@example.com\"]\n}\n")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write policy: %v", err)
+	}
+
+	calls := 0
+	stubRevoke(t, func(context.Context, string) error {
+		calls++
+		return nil
+	})
+
+	cmd := &AuthEmergencyRevokeCmd{Account: "Victim@Example.com"}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if output.ExitCode(runErr) != output.ExitCodeNotFound {
+		t.Fatalf("exit code = %d, want %d (stderr %q)", output.ExitCode(runErr), output.ExitCodeNotFound, stderr)
+	}
+	if calls != 0 {
+		t.Fatalf("revoke calls = %d, want 0", calls)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read policy: %v", err)
+	}
+	if string(after) != string(raw) {
+		t.Fatalf("policy changed although the address was already blocked\nbefore: %s\nafter: %s", raw, after)
+	}
+	assertAccountBlocked(t, account)
+}
+
 func TestEmergencyRevokeCmd_MissingTokenBlocksAccount(t *testing.T) {
 	setupFileKeyring(t)
 

@@ -811,7 +811,10 @@ jobs:
           assert blocked == ['test@example.com'], blocked
           print('emergency-revoke-invalid-client: OK')
           "
-          SSL_CERT_FILE="$work/ca.crt" /tmp/gog-lite auth emergency-revoke --account test@example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
+          policy_path="$XDG_CONFIG_HOME/gog-lite/policy.json"
+          policy_before=$(mktemp)
+          cp "$policy_path" "$policy_before"
+          SSL_CERT_FILE="$work/ca.crt" /tmp/gog-lite auth emergency-revoke --account Test@Example.com >"$out_json" 2>"$err_json" && code=0 || code=$?
           echo "second exit code: $code"
           echo "second stderr:"
           cat "$err_json"
@@ -822,6 +825,11 @@ jobs:
           d = json.load(open('$err_json'))
           assert d['code'] == 'remote_revoke_failed', d
           assert 'ブロック済み' in (d.get('error') or ''), d
+          before = open('$policy_before', 'rb').read()
+          after = open('$policy_path', 'rb').read()
+          assert before == after, (before, after)
+          policy = json.load(open('$policy_path'))
+          assert policy.get('blocked_accounts') == ['test@example.com'], policy
           print('emergency-revoke-invalid-client-token-kept: OK')
           "
       - name: require_approval_actions keeps default destructive actions

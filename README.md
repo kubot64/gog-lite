@@ -223,6 +223,8 @@ HTTP 400 で `error` が `invalid_token` のとき（すでに無効、または
 
 保存された refresh token が無いときは Google へ送らず、終了コード 3、同じ `code`。この場合も `blocked_accounts` には追加する。
 
+正規化したアドレスがすでに `blocked_accounts` にあるときは追加しない。再実行しても policy の内容は変わらない。
+
 `--dry-run` は失効リクエストを送らない。確認用 JSON と監査ログだけを返し、削除もブロックもしない。
 
 ```json
