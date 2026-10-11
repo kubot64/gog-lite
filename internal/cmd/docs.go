@@ -292,7 +292,7 @@ type DocsWriteCmd struct {
 	ContentStdin   bool   `name:"content-stdin" help:"Read content from stdin."`
 	Replace        bool   `name:"replace" help:"Replace all existing content."`
 	ConfirmReplace bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
-	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -429,7 +429,7 @@ type DocsFindReplaceCmd struct {
 	Replace            string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase          bool   `name:"match-case" help:"Case-sensitive matching."`
 	ConfirmFindReplace bool   `name:"confirm-find-replace" help:"Required confirmation flag for find-replace operations."`
-	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {

@@ -145,7 +145,7 @@ type SlidesWriteCmd struct {
 	Replace        string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase      bool   `name:"match-case" help:"Case-sensitive matching (default: false)."`
 	ConfirmWrite   bool   `name:"confirm-write" help:"Required confirmation flag for write operations."`
-	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 }
 
 func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {

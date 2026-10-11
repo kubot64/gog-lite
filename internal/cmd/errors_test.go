@@ -23,6 +23,17 @@ import (
 	"github.com/kubot64/gog-lite/internal/secrets"
 )
 
+func TestWriteGoogleAPIError_TooManyRequestsStaysCommandError(t *testing.T) {
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = writeGoogleAPIError("delete_error", &gapi.Error{Code: http.StatusTooManyRequests, Message: "rate limit"})
+	})
+	if got := output.ExitCode(runErr); got != output.ExitCodeError {
+		t.Errorf("exit code = %d, want %d", got, output.ExitCodeError)
+	}
+	assertErrorCode(t, stderr, "delete_error")
+}
+
 func TestWriteGoogleAPIError_Unauthorized(t *testing.T) {
 	var runErr error
 	stderr := captureStderr(t, func() {

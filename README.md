@@ -207,7 +207,7 @@ gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
 gog-lite auth emergency-revoke --account EMAIL  # リモート失効を試し、ローカルでは必ずブロックする
 ```
 
-`auth approval-token` の `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンはファイル名が違うため使えません。`auth approval-token` を発行し直してください。トークンが `-` で始まるときは `--approval-token=TOKEN` の形で渡す。
+`auth approval-token` の `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
 
 `auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。
 
@@ -462,7 +462,7 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 - `--dry-run` は書き込み系操作の標準確認手段です。自動化では実行前に使う前提で設計します。
 - 公開契約として安定して守るのは、stdout/stderr の JSON 形、終了コード、主要安全制御です。
 - Google API の生レスポンス詳細より、ここに記載した CLI 契約を優先して利用してください。
-- Google API の HTTP 429 は `Retry-After` を待って再試行する。秒数でも HTTP 日付でも、1 回の待ちは 30 秒まで。終了コードとエラー `code` は変わらない。
+- Google API の HTTP 429 は `Retry-After` を待って再試行する。秒数でも HTTP 日付でも、1 回の待ちは 30 秒まで。待ちがクライアントの残り時間（タイムアウト 30 秒）に収まらないときは待たず、再試行しない。終了コードとエラー `code` は変わらない。`rate_limited` にはしない。
 
 ## ドキュメント
 

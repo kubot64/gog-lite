@@ -7,12 +7,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kubot64/gog-lite/internal/config"
+)
+
+const (
+	approvalTokenEntropyBytes = 24
+	// approvalTokenMaxAttempts bounds redraws when URL-safe base64 starts with
+	// '-'. Kong treats a space-separated argument that starts with '-' as a flag.
+	approvalTokenMaxAttempts = 8
 )
 
 type approvalTokenState struct {
@@ -165,12 +173,25 @@ func approvalTokenFilename(token string) string {
 }
 
 func randomToken() (string, error) {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate approval token: %w", err)
+	return randomTokenFrom(rand.Reader)
+}
+
+// randomTokenFrom draws until the token does not start with '-'. Tokens that
+// already exist, including ones that start with '-', stay valid.
+func randomTokenFrom(r io.Reader) (string, error) {
+	for attempt := 0; attempt < approvalTokenMaxAttempts; attempt++ {
+		b := make([]byte, approvalTokenEntropyBytes)
+		if _, err := io.ReadFull(r, b); err != nil {
+			return "", fmt.Errorf("generate approval token: %w", err)
+		}
+
+		token := base64.RawURLEncoding.EncodeToString(b)
+		if !strings.HasPrefix(token, "-") {
+			return token, nil
+		}
 	}
 
-	return base64.RawURLEncoding.EncodeToString(b), nil
+	return "", fmt.Errorf("generate approval token: token must not start with '-'")
 }
 
 func validateApprovalToken(token string) error {
