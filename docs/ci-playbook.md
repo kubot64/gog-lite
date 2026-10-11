@@ -4,7 +4,7 @@ CI 失敗時の調査・対処手順。
 
 ## 基本手順
 
-1. 失敗ジョブを特定する（Unit / CLI Integration / Security nightly）。
+1. 失敗ジョブを特定する（Unit / CLI Integration / govulncheck / Security nightly）。
 2. failed step のログを取得して、最初の失敗行を確認する。
 3. 実装起因かフレークかを切り分ける。
 4. フレーク疑い時は rerun して再現性を確認する。
@@ -25,6 +25,14 @@ CI 失敗時の調査・対処手順。
 - 対処:
   - CI で必要な環境変数を確認（`GOG_LITE_CLIENT_ID`, `GOG_LITE_CLIENT_SECRET`）。
   - file backend 利用時は `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定。
+
+### govulncheck
+
+- 症状: `govulncheck` が終了コード 3 で、呼び出し経路上の脆弱性を報告する。
+- 対処:
+  - 標準ライブラリなら `go` 行（と必要なら `toolchain`）を修正済みパッチへ上げる。
+  - モジュールなら該当依存を修正版へ上げて `go mod tidy` する。
+  - 呼び出し経路なしの検出は既定の symbol スキャンでは失敗にしない。`-show verbose` で残件を確認する。
 
 ### 時刻・入力境界
 
