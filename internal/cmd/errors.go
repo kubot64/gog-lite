@@ -19,6 +19,9 @@ func writeGoogleAPIError(defaultCode string, err error) error {
 	var apiErr *gapi.Error
 	if errors.As(err, &apiErr) {
 		switch apiErr.Code {
+		case http.StatusUnauthorized:
+			// Google rejected the token. Agents treat this like a missing token and log in again.
+			return output.WriteError(output.ExitCodeAuth, "auth_required", err.Error())
 		case http.StatusNotFound:
 			return output.WriteError(output.ExitCodeNotFound, "not_found", err.Error())
 		case http.StatusForbidden:

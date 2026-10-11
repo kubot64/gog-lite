@@ -38,7 +38,16 @@ var (
 var oauthEndpoint = google.Endpoint
 var oauthUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo"
 
-const oauthUserInfoBodyLimit = 1 << 20
+const (
+	oauthUserInfoBodyLimit = 1 << 20
+	// userInfoTimeout bounds the OpenID userinfo call. http.DefaultClient has
+	// no timeout, so a hung connection would block the command until the
+	// process is killed. This matches the Google API client timeout.
+	userInfoTimeout = 30 * time.Second
+)
+
+// userInfoHTTPClient calls the OpenID userinfo endpoint with userInfoTimeout.
+var userInfoHTTPClient = &http.Client{Timeout: userInfoTimeout}
 
 // AuthorizeOptions configures a 2-step headless OAuth flow.
 type AuthorizeOptions struct {
@@ -479,7 +488,7 @@ func emailFromUserInfo(ctx context.Context, tok *oauth2.Token) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := userInfoHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request userinfo: %w", err)
 	}

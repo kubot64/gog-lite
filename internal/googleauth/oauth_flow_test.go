@@ -201,6 +201,65 @@ func TestEmailFromUserInfo_MissingAccessToken(t *testing.T) {
 	}
 }
 
+func TestUserInfoHTTPClient_HasTimeout(t *testing.T) {
+	if userInfoHTTPClient == nil {
+		t.Fatal("userinfo client is nil")
+	}
+	if userInfoHTTPClient.Timeout != userInfoTimeout {
+		t.Fatalf("timeout = %s, want %s", userInfoHTTPClient.Timeout, userInfoTimeout)
+	}
+	if userInfoHTTPClient.Timeout <= 0 {
+		t.Fatal("userinfo client has no timeout")
+	}
+}
+
+func TestEmailFromUserInfo_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	oldEndpoint := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = server.URL
+	defer func() { oauthUserInfoEndpoint = oldEndpoint }()
+
+	oldClient := userInfoHTTPClient
+	userInfoHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
+	defer func() { userInfoHTTPClient = oldClient }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, err := emailFromUserInfo(ctx, &oauth2.Token{AccessToken: "test-token"})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("userinfo hung for %s: %v", elapsed, err)
+	}
+}
+
+func TestEmailFromUserInfo_Unauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	old := oauthUserInfoEndpoint
+	oauthUserInfoEndpoint = server.URL
+	defer func() { oauthUserInfoEndpoint = old }()
+
+	_, err := emailFromUserInfo(context.Background(), &oauth2.Token{AccessToken: "test-token"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Fatalf("error = %q, want status 401", err)
+	}
+}
+
 func TestEmailFromUserInfo_Unverified(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
