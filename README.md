@@ -20,7 +20,27 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 - `--audit-log` — 書き込み操作の JSONL 監査ログ
 - `--allowed-output-dir` — ファイル出力先ディレクトリ制限
 - `--confirm-*` — 破壊的操作の明示確認
-- `--approval-token` — 高リスク操作の追加承認
+- `--approval-token` — 高リスク操作の追加承認。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
+
+## 実行ポリシー（policy.json）
+
+設定ディレクトリの `policy.json`（Linux は `~/.config/gog-lite/policy.json`、macOS は `~/Library/Application Support/gog-lite/policy.json`）で実行を制限できる。ファイルが無いときはアクション制限はなく、上の既定だけが承認必須になる。
+
+- `allowed_actions`: 空ならすべて許可する。値があるときは、そのアクションだけ許可する。
+- `blocked_accounts`: 拒否するアカウント。
+- `require_approval_actions`: ここに書いたアクションを、既定の承認必須アクションに加える。
+- `exempt_approval_actions`: 既定の対象から承認を外す。`require_approval_actions` にも書いてあるアクションは承認必須のまま。
+
+承認を確認するのは `calendar delete`、`docs write --replace`、`docs find-replace`、`sheets update`、`slides write` と、`auth approval-token` の発行である。
+
+```json
+{
+  "require_approval_actions": ["gmail.draft"],
+  "exempt_approval_actions": ["slides.write"]
+}
+```
+
+この例では `auth approval-token --action gmail.draft` を発行でき、`slides write` は承認トークンなしで実行できる。`calendar.delete` など残りの既定は承認必須のまま。`slides write` の `--confirm-write` は別の確認で、オプトアウトしても残る。
 
 ## インストール
 
