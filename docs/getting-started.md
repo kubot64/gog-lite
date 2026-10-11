@@ -122,7 +122,8 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 1. `auth_url` の値をブラウザで開く
 2. Google アカウントでログインして「許可」
 3. リダイレクト先の URL（`http://127.0.0.1:...?code=...` のような URL）をコピー
-   - ページが読み込めなくてもOK。URL だけコピーすれば大丈夫です
+   - ステップ 1 がポートをつかんでいる間は、URL のコピーを案内するページが開きます
+   - ページが開かなくても、アドレスバーの URL をコピーすれば大丈夫です
 4. コピーした URL を `--auth-url` に渡す：
 
 ```bash
@@ -219,6 +220,10 @@ ls ~/.config/gog-lite/
 ### `ready: false` で `token: false` になる
 
 ステップ 3 の認証が完了していません。`auth login` を最初からやり直してください。
+
+### 以前ログインしたアカウントで API が失敗する
+
+ログイン時の OAuth スコープを、各コマンドが使う範囲へ狭めています。保存済みの refresh token は広い権限のままなので、[README の再認証手順](../README.md#スコープを狭めたあとの再認証) のとおり、Google アカウント側のアクセス権を削除してから `auth remove` と `auth login --force-consent` を実行してください。同意画面を出し直すだけでは、過去のスコープは外れません。
 
 ### `エラー 403: access_denied` が出る
 

@@ -99,8 +99,13 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 ```
 
 ブラウザで `auth_url` を開く。認証後、ブラウザのアドレスバーに
-`http://127.0.0.1:PORT/oauth2/callback?code=...&state=...` のような URL が表示される
-（ページは読み込めなくてよい）。そのURLをコピーする。
+`http://127.0.0.1:PORT/oauth2/callback?code=...&state=...` のような URL が表示される。
+ステップ 1 はそのポートを最大 10 分つかむので、コピーを案内するページが開くことがある。
+ページが開かなくても、アドレスバーの URL をコピーする。
+
+ステップ 1 は `auth_url` の JSON を出して終了する。ポートをつかみ続けるプロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。
+
+すでに保存したトークンは、現在より広いスコープを持っている。同意の取り直しだけではスコープは減らない。Google アカウントのサードパーティ アクセスからこのクライアントを削除し、`auth remove` のあと `auth login --force-consent` でやり直す。手順は README の「スコープを狭めたあとの再認証」。
 
 **ステップ 2** — コードを交換してトークンを保存：
 
