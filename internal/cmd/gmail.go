@@ -28,14 +28,19 @@ type GmailCmd struct {
 type GmailSearchCmd struct {
 	Account  string `name:"account" required:"" short:"a" help:"Google account email."`
 	Query    string `name:"query" required:"" short:"q" help:"Gmail search query (e.g. 'is:unread')."`
-	Max      int64  `name:"max" default:"20" help:"Maximum results to return."`
-	AllPages bool   `name:"all-pages" help:"Fetch all pages of results."`
+	Max      int64  `name:"max" default:"20" help:"Maximum results per page."`
+	AllPages bool   `name:"all-pages" help:"Fetch pages until nextPageToken is empty or --max-pages is reached."`
+	MaxPages int    `name:"max-pages" default:"10" help:"Page cap for --all-pages (1-50). When the cap is hit, nextPageToken is returned."`
 	Page     string `name:"page" help:"Page token for pagination."`
 }
 
 func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
 	if err := enforceActionPolicy(c.Account, "gmail.search"); err != nil {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
+	if err := validateMaxPages(c.MaxPages); err != nil {
+		return output.WriteError(output.ExitCodeError, "invalid_arguments", err.Error())
 	}
 
 	if err := enforceRateLimit("gmail.search", 120, time.Minute); err != nil {
@@ -52,7 +57,7 @@ func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
 		ThreadID string `json:"thread_id"`
 	}
 
-	messages, nextPageToken, err := collectAllPages(c.AllPages, func(pageToken string) (string, []messageRef, error) {
+	messages, nextPageToken, err := collectAllPages(c.AllPages, c.MaxPages, func(pageToken string) (string, []messageRef, error) {
 		req := svc.Users.Messages.List("me").Q(c.Query).MaxResults(c.Max)
 		if pageToken != "" {
 			req = req.PageToken(pageToken)

@@ -37,6 +37,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - 監査ログの追記には keyring が必要。失敗時の code は `audit_error`（終了コード 1）
 - ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` のときと、Linux でセッションバスが無いときの自動選択のどちらも同じ。未設定・空・空白のみは `keyring_error`（終了コード 1）。パスワードはプロンプトしない。セッションバスは `DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う
 - `auth emergency-revoke` は Google が HTTP 200、または HTTP 400 で `error` が `invalid_token` のとき、ローカルトークンを削除してアカウントをブロックする。通信失敗・5xx・トークン無しでも `blocked_accounts` へ追加する。`--dry-run` は失効リクエストを送らない
+- `gmail search` と `calendar list` の `--all-pages` は `--max-pages`（既定 10、1〜50）ページで止まる。続きがあるときは `nextPageToken` を返し、終了コードは 0。範囲外の `--max-pages` は `invalid_arguments`（終了コード 1）で、レート制限は消費しない
 
 ## Safety Controls
 
@@ -223,7 +224,7 @@ gog-lite --help
 #### search
 
 ```bash
-gog-lite gmail search --account EMAIL --query QUERY [--max 20] [--all-pages] [--page TOKEN]
+gog-lite gmail search --account EMAIL --query QUERY [--max 20] [--all-pages] [--max-pages 10] [--page TOKEN]
 ```
 
 ```json
@@ -234,6 +235,8 @@ gog-lite gmail search --account EMAIL --query QUERY [--max 20] [--all-pages] [--
   "nextPageToken": "..."
 }
 ```
+
+`--max` は 1 ページあたりの件数。`--all-pages` は `nextPageToken` が空になるまで繰り返すが、`--max-pages`（既定 10、1〜50）で止まる。止めたときに続きがあれば、その `nextPageToken` を返す。続きは `--page` に渡す。`--max-pages` が範囲外のときは `invalid_arguments`（終了コード 1）。この失敗ではレート制限を消費しない。
 
 よく使うクエリ例：
 - `is:unread` — 未読
@@ -319,7 +322,7 @@ gog-lite calendar calendars --account EMAIL
 
 ```bash
 gog-lite calendar list --account EMAIL [--calendar-id primary] \
-  [--from RFC3339] [--to RFC3339] [--max 20] [--all-pages] [--page TOKEN] [--query TEXT]
+  [--from RFC3339] [--to RFC3339] [--max 20] [--all-pages] [--max-pages 10] [--page TOKEN] [--query TEXT]
 ```
 
 ```json
@@ -336,6 +339,8 @@ gog-lite calendar list --account EMAIL [--calendar-id primary] \
   "nextPageToken": ""
 }
 ```
+
+`--max` は 1 ページあたりの件数。`--all-pages` は `--max-pages`（既定 10、最大 50）まで。上限に達して続きがあるときは `nextPageToken` を返す。範囲外の `--max-pages` は `invalid_arguments`（終了コード 1）。
 
 時刻は RFC3339 形式（タイムゾーン必須）：`2026-03-01T00:00:00Z` / `2026-03-01T00:00:00+09:00`
 
@@ -671,7 +676,7 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | `remote_revoke_failed` | 3 | 保存された refresh token がない。Google へは送らない。`blocked_accounts` には追加する |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
-| `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外のときもこれ |
+| `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外、`--max-pages` が 1〜50 以外のときもこれ |
 | `write_requires_confirmation` | 1 | 上書きに `--confirm-write` がない（`sheets update` など） |
 | `replace_requires_confirmation` | 1 | `docs write --replace` に `--confirm-replace` がない。`--dry-run` では不要 |
 | `output_not_allowed` | 4 | `--allowed-output-dir` の外へ `docs export` しようとした。`--dry-run` でも同じ |
@@ -767,17 +772,23 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 
 ## ページネーション
 
-`--max` と `--all-pages` を使い分ける：
+`--max` は 1 ページあたりの件数。`--all-pages` はそれを `--max-pages` ページまで繰り返す。既定は 10、最大は 50。上限に達して続きがあるときは、取得済みの結果と `nextPageToken` を返して止まる（終了コード 0）。メールボックス全体を 1 回の実行に載せない。
 
 ```bash
 # 最新20件だけ
 gog-lite gmail search --account EMAIL --query "is:unread" --max 20
 
-# 全件取得（注意：大量になる場合あり）
+# 最大10ページ（--max-pages の既定）。続きがあれば nextPageToken が返る
 gog-lite gmail search --account EMAIL --query "is:unread" --all-pages
+
+# ページ数を上げる（1〜50）
+gog-lite gmail search --account EMAIL --query "is:unread" --all-pages --max-pages 50
 
 # 手動ページング（nextPageToken を次の --page に渡す）
 first=$(gog-lite gmail search --account EMAIL --query "label:inbox" --max 10)
 token=$(echo "$first" | jq -r .nextPageToken)
 gog-lite gmail search --account EMAIL --query "label:inbox" --max 10 --page "$token"
+
+# 上限で止まった続きも、同じトークンを --page に渡す
+gog-lite gmail search --account EMAIL --query "is:unread" --all-pages --page "$token"
 ```

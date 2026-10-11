@@ -72,8 +72,9 @@ type CalendarListCmd struct {
 	CalendarID string `name:"calendar-id" default:"primary" help:"Calendar ID."`
 	From       string `name:"from" help:"Start time in RFC3339 format."`
 	To         string `name:"to" help:"End time in RFC3339 format."`
-	Max        int64  `name:"max" default:"20" help:"Maximum results."`
-	AllPages   bool   `name:"all-pages" help:"Fetch all pages of results."`
+	Max        int64  `name:"max" default:"20" help:"Maximum results per page."`
+	AllPages   bool   `name:"all-pages" help:"Fetch pages until nextPageToken is empty or --max-pages is reached."`
+	MaxPages   int    `name:"max-pages" default:"10" help:"Page cap for --all-pages (1-50). When the cap is hit, nextPageToken is returned."`
 	Page       string `name:"page" help:"Page token for pagination."`
 	Query      string `name:"query" short:"q" help:"Free text search query."`
 }
@@ -81,6 +82,10 @@ type CalendarListCmd struct {
 func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 	if err := enforceActionPolicy(c.Account, "calendar.list"); err != nil {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
+	if err := validateMaxPages(c.MaxPages); err != nil {
+		return output.WriteError(output.ExitCodeError, "invalid_arguments", err.Error())
 	}
 
 	if err := enforceRateLimit("calendar.list", 120, time.Minute); err != nil {
@@ -110,7 +115,7 @@ func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 		Status      string `json:"status,omitempty"`
 	}
 
-	events, nextPageToken, err := collectAllPages(c.AllPages, func(pageToken string) (string, []eventRef, error) {
+	events, nextPageToken, err := collectAllPages(c.AllPages, c.MaxPages, func(pageToken string) (string, []eventRef, error) {
 		req := svc.Events.List(c.CalendarID).
 			MaxResults(c.Max).
 			SingleEvents(true).

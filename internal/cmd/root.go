@@ -140,11 +140,38 @@ func filterFlags(args []string, flags ...string) []string {
 	return out
 }
 
-// collectAllPages calls fn repeatedly until nextPageToken is empty or allPages is false.
+const (
+	// defaultMaxPages is the --max-pages default. The kong default tag must match.
+	defaultMaxPages = 10
+	// maxPagesLimit is the largest --max-pages value. Help text must mention it.
+	maxPagesLimit = 50
+)
+
+func validateMaxPages(n int) error {
+	if n < 1 || n > maxPagesLimit {
+		return fmt.Errorf("--max-pages must be between 1 and %d", maxPagesLimit)
+	}
+
+	return nil
+}
+
+// collectAllPages calls fn until nextPageToken is empty, allPages is false,
+// or maxPages responses have been collected.
 // fn receives the current page token and returns (nextPageToken, items, error).
-func collectAllPages[T any](allPages bool, fn func(pageToken string) (string, []T, error)) ([]T, string, error) {
+// When allPages is true and the cap is hit, the pending nextPageToken is returned
+// so the caller can resume with --page. When allPages is false, maxPages is ignored.
+func collectAllPages[T any](allPages bool, maxPages int, fn func(pageToken string) (string, []T, error)) ([]T, string, error) {
+	if allPages {
+		if err := validateMaxPages(maxPages); err != nil {
+			return nil, "", err
+		}
+	} else {
+		maxPages = 1
+	}
+
 	var result []T
 	pageToken := ""
+	fetched := 0
 
 	for {
 		next, items, err := fn(pageToken)
@@ -153,8 +180,9 @@ func collectAllPages[T any](allPages bool, fn func(pageToken string) (string, []
 		}
 
 		result = append(result, items...)
+		fetched++
 
-		if !allPages || next == "" {
+		if next == "" || fetched >= maxPages {
 			return result, next, nil
 		}
 
