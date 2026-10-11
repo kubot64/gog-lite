@@ -394,19 +394,33 @@ func Step1(ctx context.Context, creds config.ClientCredentials, opts AuthorizeOp
 
 	scopes := normalizeScopes(opts.Scopes)
 
-	// Reuse existing state if available. The stored verifier must be the one
-	// that produced the original code_challenge.
-	if st, ok, err := loadManualState(scopes); err != nil {
-		return Step1Result{}, err
-	} else if ok {
-		if err := ensureCallbackPort(st.RedirectURI); err != nil {
+	// Reuse an unexpired state when its callback port is still served by this
+	// program. The stored verifier must be the one that produced the original
+	// code_challenge. If another process holds the port, drop that state and
+	// mint a new port, state, and verifier below.
+	for {
+		st, ok, err := loadManualState(scopes)
+		if err != nil {
 			return Step1Result{}, err
 		}
+		if !ok {
+			break
+		}
 
-		return Step1Result{
-			AuthURL:  buildAuthURL(creds, st.RedirectURI, st.State, st.CodeVerifier, scopes, opts.ForceConsent),
-			NextStep: "run again with --auth-url <redirect URL from browser>",
-		}, nil
+		keep, err := ensureCallbackPort(st.RedirectURI)
+		if err != nil {
+			return Step1Result{}, err
+		}
+		if keep {
+			return Step1Result{
+				AuthURL:  buildAuthURL(creds, st.RedirectURI, st.State, st.CodeVerifier, scopes, opts.ForceConsent),
+				NextStep: "run again with --auth-url <redirect URL from browser>",
+			}, nil
+		}
+
+		if err := clearManualState(st.State); err != nil {
+			return Step1Result{}, err
+		}
 	}
 
 	ln, redirectURI, err := listenLoopback(ctx)

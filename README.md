@@ -159,7 +159,9 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 
 ブラウザで `auth_url` を開いて認証する。認証後、ブラウザは `http://127.0.0.1:PORT/oauth2/callback?code=...` に戻る。ステップ 1 はそのポートを最大 10 分つかんだままにするので、URL のコピーを案内するページが開く。ページが開かない場合でも、アドレスバーの URL をコピーすればよい。
 
-ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じリダイレクト URL でステップ 2 を再実行できる。token endpoint が失敗したときの stderr は固定文 `token endpoint request failed` と短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`code` は `auth_exchange_error`、終了コードは 1。`invalid_grant` でも同じ。`error_description`、`error_uri`、応答本文は出さない。userinfo が HTTP 200 以外のときも `code` は `auth_exchange_error`、終了コードは 1。`error` は `userinfo request failed` と HTTP ステータスコードだけ（例: `userinfo request failed (HTTP 401)`）。応答本文と `error_description` は出さない。
+ステップ 1 のコマンド自体は `auth_url` を出力して終了する。ポートをつかみ続ける別プロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じリダイレクト URL でステップ 2 を再実行できる。
+
+ステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。使い回すのは、保存したポートで gog-lite の保持プロセスが案内ページを返しているときだけである。別のプロセスがそのポートを使っていて確かめられないときは、古い状態を捨て、新しいポート・state・verifier で `auth_url` を出し直す。表示された URL を開く。token endpoint が失敗したときの stderr は固定文 `token endpoint request failed` と短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`code` は `auth_exchange_error`、終了コードは 1。`invalid_grant` でも同じ。`error_description`、`error_uri`、応答本文は出さない。userinfo が HTTP 200 以外のときも `code` は `auth_exchange_error`、終了コードは 1。`error` は `userinfo request failed` と HTTP ステータスコードだけ（例: `userinfo request failed (HTTP 401)`）。応答本文と `error_description` は出さない。
 
 `--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 

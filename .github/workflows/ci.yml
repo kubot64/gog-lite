@@ -1337,6 +1337,161 @@ jobs:
               prev = entry['hash']
           print('concurrent-dead-lock: OK')
           "
+      - name: auth login reuses callback state while the holder answers
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          trap 'pkill -f "/tmp/gog-lite oauth-callback-hold" >/dev/null 2>&1 || true' EXIT
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth login --account test@example.com --services gmail >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          [ -s "$out_json" ]
+          first_state=$(mktemp)
+          first_redirect=$(mktemp)
+          OUT_JSON="$out_json" STATE_OUT="$first_state" REDIRECT_OUT="$first_redirect" python3 -c '
+          import json, os, urllib.parse
+          d = json.load(open(os.environ["OUT_JSON"]))
+          q = urllib.parse.parse_qs(urllib.parse.urlparse(d["auth_url"]).query)
+          open(os.environ["STATE_OUT"], "w").write(q["state"][0])
+          open(os.environ["REDIRECT_OUT"], "w").write(q["redirect_uri"][0])
+          print("auth-login-step1: OK")
+          '
+          /tmp/gog-lite auth login --account test@example.com --services gmail >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "reuse exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          OUT_JSON="$out_json" STATE_OUT="$first_state" REDIRECT_OUT="$first_redirect" python3 -c '
+          import json, os, urllib.parse
+          d = json.load(open(os.environ["OUT_JSON"]))
+          q = urllib.parse.parse_qs(urllib.parse.urlparse(d["auth_url"]).query)
+          state = open(os.environ["STATE_OUT"]).read()
+          redirect = open(os.environ["REDIRECT_OUT"]).read()
+          assert q["state"][0] == state, (q["state"][0], state)
+          assert q["redirect_uri"][0] == redirect, (q["redirect_uri"][0], redirect)
+          print("auth-login-reuse-holder: OK")
+          '
+      - name: auth login replaces callback state when another process holds the port
+        run: |
+          set -euo pipefail
+          HOME=$(mktemp -d)
+          export HOME
+          export XDG_CONFIG_HOME="$HOME"
+          export GOG_LITE_CLIENT_ID=dummy-id
+          export GOG_LITE_CLIENT_SECRET=dummy-secret
+          work=$(mktemp -d)
+          server_pid=""
+          cleanup() {
+            if [ -n "${server_pid}" ]; then
+              kill "${server_pid}" 2>/dev/null || true
+              wait "${server_pid}" 2>/dev/null || true
+            fi
+            pkill -f "/tmp/gog-lite oauth-callback-hold" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cat > "$work/server.py" << 'PY'
+          import sys
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = b"foreign-secret-body"
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/plain")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, fmt, *args):
+                  return
+
+          server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+          sys.stdout.write(str(server.server_address[1]) + "\n")
+          sys.stdout.flush()
+          server.serve_forever()
+          PY
+          python3 "$work/server.py" >"$work/port" &
+          server_pid=$!
+          ready=0
+          for _ in $(seq 1 50); do
+            if [ -s "$work/port" ]; then
+              ready=1
+              break
+            fi
+            sleep 0.1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "foreign callback stub did not start"
+            exit 1
+          fi
+          port=$(tr -d '[:space:]' < "$work/port")
+          PORT="$port" python3 -c '
+          import json, os
+          from datetime import datetime, timezone
+          port = os.environ["PORT"]
+          directory = os.path.join(os.environ["XDG_CONFIG_HOME"], "gog-lite")
+          os.makedirs(directory, mode=0o700, exist_ok=True)
+          path = os.path.join(directory, "oauth-manual-state-foreignportstate.json")
+          doc = {
+              "state": "foreignportstate",
+              "redirect_uri": "http://127.0.0.1:%s/oauth2/callback" % port,
+              "scopes": [
+                  "email",
+                  "https://www.googleapis.com/auth/gmail.compose",
+                  "https://www.googleapis.com/auth/gmail.readonly",
+                  "https://www.googleapis.com/auth/userinfo.email",
+                  "openid",
+              ],
+              "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "code_verifier": "a" * 43,
+          }
+          with open(path, "w", encoding="utf-8") as fh:
+              json.dump(doc, fh)
+              fh.write("\n")
+          os.chmod(path, 0o600)
+          print("seeded", path)
+          '
+          out_json=$(mktemp)
+          err_json=$(mktemp)
+          /tmp/gog-lite auth login --account test@example.com --services gmail >"$out_json" 2>"$err_json" && code=0 || code=$?
+          echo "exit code: $code"
+          echo "stdout:"
+          cat "$out_json"
+          echo "stderr:"
+          cat "$err_json"
+          [ "$code" -eq 0 ]
+          [ ! -s "$err_json" ]
+          [ -s "$out_json" ]
+          OUT_JSON="$out_json" PORT="$port" python3 -c '
+          import json, os, urllib.parse
+          raw = open(os.environ["OUT_JSON"]).read()
+          assert "foreign-secret-body" not in raw
+          d = json.loads(raw)
+          q = urllib.parse.parse_qs(urllib.parse.urlparse(d["auth_url"]).query)
+          assert q["state"][0] != "foreignportstate", q["state"][0]
+          redirect = q["redirect_uri"][0]
+          occupied = "http://127.0.0.1:%s/oauth2/callback" % os.environ["PORT"]
+          assert redirect != occupied, redirect
+          old = os.path.join(os.environ["XDG_CONFIG_HOME"], "gog-lite", "oauth-manual-state-foreignportstate.json")
+          assert not os.path.exists(old), old
+          new = os.path.join(os.environ["XDG_CONFIG_HOME"], "gog-lite", "oauth-manual-state-%s.json" % q["state"][0])
+          assert os.path.isfile(new), new
+          print("auth-login-replace-foreign-port: OK")
+          '
 
   security-nightly:
     name: Security Regression (nightly)

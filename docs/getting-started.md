@@ -121,6 +121,8 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 }
 ```
 
+10 分以内にステップ 1 をやり直すと、前回の認証 URL をそのまま返すことがあります。返すのは、前回のポートで gog-lite が案内ページを出し続けているときだけです。別のソフトがそのポートを使っているときは、新しい認証 URL を出します。表示された `auth_url` を開いてください。
+
 ### ステップ 2：ブラウザで認可してトークンを保存する
 
 1. `auth_url` の値をブラウザで開く
