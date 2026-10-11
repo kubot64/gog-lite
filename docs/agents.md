@@ -32,6 +32,7 @@ AI や自動化が安定して依存してよい契約は次の通り。
 - `sheets update` と `sheets append` はセル値を既定で `RAW` として書き込む。数式や日付として解釈するのは `--value-input USER_ENTERED` を付けたときだけ
 - `sheets update` は `--confirm-write` と、既定では `--approval-token` を要求する。`--dry-run` ではどちらも不要
 - `--audit-log` と `--allowed-output-dir` は安全制御として扱う
+- `auth emergency-revoke` は Google の失効が HTTP 200 のときだけローカルトークンを削除し、アカウントをブロックする。失敗時の `code` は `remote_revoke_failed`
 
 ## Safety Controls
 
@@ -161,6 +162,15 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須アクション（`require_approval_actions` またはデフォルト）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
+- `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。HTTP 200 のときだけローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。
+- 失効に失敗したときはローカル削除もブロックもせず、stderr は `{"error":"リモート失効に失敗した: ...","code":"remote_revoke_failed"}`。通信失敗や 200 以外の応答は終了コード 1。保存された refresh token が無いときは Google へ送らず、終了コード 3。
+- `auth remove` はローカルのトークン削除だけで、Google 側の失効はしない。
+
+`auth emergency-revoke` の成功時：
+
+```json
+{"revoked": true, "blocked": true, "email": "you@gmail.com"}
+```
 
 ---
 
@@ -588,6 +598,8 @@ gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_I
 | code | 終了コード | 意味 |
 |------|-----------|------|
 | `auth_required` | 2 | トークン未保存（`auth login` が必要） |
+| `remote_revoke_failed` | 1 | `auth emergency-revoke` で Google 側の失効に失敗した。ローカルトークンは残る |
+| `remote_revoke_failed` | 3 | 保存された refresh token がなく、失効を送っていない。ブロックもしない |
 | `credentials_missing` | 1 | `credentials.json` がない |
 | `invalid_time` | 1 | RFC3339 フォーマットエラー |
 | `invalid_arguments` | 1 | 必須引数の不足や不正なフラグ。`--value-input` が `RAW` / `USER_ENTERED` 以外のときもこれ |

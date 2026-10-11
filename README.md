@@ -176,8 +176,18 @@ gog-lite auth list                        # 認証済みアカウント一覧
 gog-lite auth remove --account EMAIL      # アカウントのトークンを削除
 gog-lite auth preflight --account EMAIL --require-actions gmail.draft,calendar.create
 gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
-gog-lite auth emergency-revoke --account EMAIL
+gog-lite auth emergency-revoke --account EMAIL  # Google で refresh token を失効してから削除・ブロック
 ```
+
+`auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。Google が HTTP 200 を返したときだけ、ローカルのトークンを削除し、policy の `blocked_accounts` にアカウントを追加する。
+
+```json
+{"revoked": true, "blocked": true, "email": "you@gmail.com"}
+```
+
+失効に失敗したときはローカル削除もブロックもせず、stderr に `code` が `remote_revoke_failed` の JSON を出す。`error` は「リモート失効に失敗した」で始まる。通信失敗や 200 以外の応答は終了コード 1。保存された refresh token が無いときは終了コード 3。
+
+`auth remove` はローカルのトークンを削除するだけで、Google 側は失効しない。
 
 ### Gmail
 
