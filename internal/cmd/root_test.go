@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,7 +15,7 @@ import (
 
 func TestCollectAllPages_SinglePage(t *testing.T) {
 	calls := 0
-	items, next, err := collectAllPages[string](false, func(token string) (string, []string, error) {
+	items, next, err := collectAllPages[string](false, 0, func(token string) (string, []string, error) {
 		calls++
 		return "next-token", []string{"a", "b"}, nil
 	})
@@ -33,7 +35,7 @@ func TestCollectAllPages_SinglePage(t *testing.T) {
 
 func TestCollectAllPages_AllPages(t *testing.T) {
 	page := 0
-	items, next, err := collectAllPages[int](true, func(token string) (string, []int, error) {
+	items, next, err := collectAllPages[int](true, defaultMaxPages, func(token string) (string, []int, error) {
 		page++
 		switch page {
 		case 1:
@@ -70,7 +72,7 @@ func TestCollectAllPages_AllPages(t *testing.T) {
 }
 
 func TestCollectAllPages_EmptyResult(t *testing.T) {
-	items, next, err := collectAllPages[string](true, func(_ string) (string, []string, error) {
+	items, next, err := collectAllPages[string](true, defaultMaxPages, func(_ string) (string, []string, error) {
 		return "", nil, nil
 	})
 	if err != nil {
@@ -86,7 +88,7 @@ func TestCollectAllPages_EmptyResult(t *testing.T) {
 
 func TestCollectAllPages_Error(t *testing.T) {
 	wantErr := errors.New("api error")
-	_, _, err := collectAllPages[string](true, func(_ string) (string, []string, error) {
+	_, _, err := collectAllPages[string](true, defaultMaxPages, func(_ string) (string, []string, error) {
 		return "", nil, wantErr
 	})
 	if !errors.Is(err, wantErr) {
@@ -97,7 +99,7 @@ func TestCollectAllPages_Error(t *testing.T) {
 func TestCollectAllPages_ErrorMidway(t *testing.T) {
 	call := 0
 	wantErr := errors.New("second page error")
-	_, _, err := collectAllPages[int](true, func(_ string) (string, []int, error) {
+	_, _, err := collectAllPages[int](true, defaultMaxPages, func(_ string) (string, []int, error) {
 		call++
 		if call == 2 {
 			return "", nil, wantErr
@@ -106,6 +108,173 @@ func TestCollectAllPages_ErrorMidway(t *testing.T) {
 	})
 	if !errors.Is(err, wantErr) {
 		t.Errorf("want %v, got %v", wantErr, err)
+	}
+}
+
+func TestCollectAllPages_StopsAtMaxPages(t *testing.T) {
+	calls := 0
+	items, next, err := collectAllPages[int](true, 2, func(token string) (string, []int, error) {
+		calls++
+		switch calls {
+		case 1:
+			if token != "" {
+				t.Errorf("page 1: want empty token, got %q", token)
+			}
+			return "p2", []int{1}, nil
+		case 2:
+			if token != "p2" {
+				t.Errorf("page 2: want %q, got %q", "p2", token)
+			}
+			return "p3", []int{2}, nil
+		default:
+			t.Errorf("unexpected call %d", calls)
+			return "", nil, nil
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("want 2 calls, got %d", calls)
+	}
+	if len(items) != 2 || items[0] != 1 || items[1] != 2 {
+		t.Fatalf("items = %v, want [1 2]", items)
+	}
+	if next != "p3" {
+		t.Errorf("want nextPageToken %q, got %q", "p3", next)
+	}
+}
+
+func TestCollectAllPages_CapEqualToAvailablePages(t *testing.T) {
+	items, next, err := collectAllPages[int](true, 1, func(token string) (string, []int, error) {
+		if token != "" {
+			t.Errorf("want empty token, got %q", token)
+		}
+		return "", []int{7}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0] != 7 {
+		t.Fatalf("items = %v, want [7]", items)
+	}
+	if next != "" {
+		t.Errorf("want empty nextPageToken, got %q", next)
+	}
+}
+
+func TestCollectAllPages_RejectsPageCap(t *testing.T) {
+	for _, maxPages := range []int{0, -1, maxPagesLimit + 1} {
+		calls := 0
+		_, _, err := collectAllPages[int](true, maxPages, func(string) (string, []int, error) {
+			calls++
+			return "next", []int{1}, nil
+		})
+		if err == nil {
+			t.Fatalf("maxPages=%d: expected error", maxPages)
+		}
+		if calls != 0 {
+			t.Fatalf("maxPages=%d: fn called %d times", maxPages, calls)
+		}
+	}
+}
+
+func TestMaxPagesFlagDocumentsLimits(t *testing.T) {
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(GmailSearchCmd{}),
+		reflect.TypeOf(CalendarListCmd{}),
+	} {
+		field, ok := typ.FieldByName("MaxPages")
+		if !ok {
+			t.Fatalf("%s missing MaxPages", typ.Name())
+		}
+		if got := field.Tag.Get("default"); got != strconv.Itoa(defaultMaxPages) {
+			t.Errorf("%s default = %q, want %d", typ.Name(), got, defaultMaxPages)
+		}
+		help := field.Tag.Get("help")
+		if !strings.Contains(help, strconv.Itoa(maxPagesLimit)) {
+			t.Errorf("%s help %q does not mention limit %d", typ.Name(), help, maxPagesLimit)
+		}
+		if field.Tag.Get("name") != "max-pages" {
+			t.Errorf("%s name = %q, want max-pages", typ.Name(), field.Tag.Get("name"))
+		}
+	}
+}
+
+func TestSearchCommands_InvalidMaxPages(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	cases := []struct {
+		name   string
+		action string
+		run    func(maxPages int) error
+	}{
+		{
+			name:   "gmail.search",
+			action: "gmail.search",
+			run: func(maxPages int) error {
+				cmd := &GmailSearchCmd{
+					Account:  "a@example.com",
+					Query:    "is:unread",
+					AllPages: true,
+					MaxPages: maxPages,
+				}
+				return cmd.Run(context.Background(), &RootFlags{})
+			},
+		},
+		{
+			name:   "calendar.list",
+			action: "calendar.list",
+			run: func(maxPages int) error {
+				cmd := &CalendarListCmd{
+					Account:    "a@example.com",
+					CalendarID: "primary",
+					AllPages:   true,
+					MaxPages:   maxPages,
+				}
+				return cmd.Run(context.Background(), &RootFlags{})
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		for _, maxPages := range []int{0, -1, maxPagesLimit + 1} {
+			t.Run(tc.name+"/"+strconv.Itoa(maxPages), func(t *testing.T) {
+				var runErr error
+				stderr := captureStderr(t, func() {
+					runErr = tc.run(maxPages)
+				})
+				if runErr == nil {
+					t.Fatal("expected error")
+				}
+				if output.ExitCode(runErr) != output.ExitCodeError {
+					t.Fatalf("exit code = %d, want %d", output.ExitCode(runErr), output.ExitCodeError)
+				}
+				var payload struct {
+					Code  string `json:"code"`
+					Error string `json:"error"`
+				}
+				if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+					t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+				}
+				if payload.Code != "invalid_arguments" {
+					t.Fatalf("code = %q, want invalid_arguments", payload.Code)
+				}
+				if !strings.Contains(payload.Error, strconv.Itoa(maxPagesLimit)) {
+					t.Fatalf("error = %q, want limit %d", payload.Error, maxPagesLimit)
+				}
+
+				path, err := rateLimitPath(tc.action)
+				if err != nil {
+					t.Fatalf("rateLimitPath: %v", err)
+				}
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("invalid --max-pages consumed rate limit, stat err=%v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -150,6 +319,64 @@ func TestExecute_HelpReturnsJSON(t *testing.T) {
 	}
 	if !strings.Contains(payload.Help, "Usage:") {
 		t.Fatalf("help payload missing usage: %q", payload.Help)
+	}
+	if !strings.Contains(payload.Help, "Docs, Sheets, and Slides") {
+		t.Fatalf("help description omits Sheets/Slides: %q", payload.Help)
+	}
+}
+
+func TestExecute_LoginHelpListsSheetsAndSlides(t *testing.T) {
+	prevArgs := os.Args
+	defer func() { os.Args = prevArgs }()
+	os.Args = []string{"gog-lite", "auth", "login", "--help"}
+
+	stdout := captureStdout(t, func() {
+		if err := Execute(context.Background(), "dev"); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	})
+
+	var payload struct {
+		Help string `json:"help"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if !strings.Contains(payload.Help, "sheets") || !strings.Contains(payload.Help, "slides") {
+		t.Fatalf("login help omits sheets/slides: %q", payload.Help)
+	}
+	if !strings.Contains(payload.Help, "Windows") {
+		t.Fatalf("login help omits the Windows port-hold fallback: %q", payload.Help)
+	}
+}
+
+func TestExecute_SearchHelpIncludesMaxPages(t *testing.T) {
+	cases := [][]string{
+		{"gog-lite", "gmail", "search", "--help"},
+		{"gog-lite", "calendar", "list", "--help"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args[1:], " "), func(t *testing.T) {
+			prevArgs := os.Args
+			os.Args = args
+			t.Cleanup(func() { os.Args = prevArgs })
+
+			stdout := captureStdout(t, func() {
+				if err := Execute(context.Background(), "dev"); err != nil {
+					t.Fatalf("Execute: %v", err)
+				}
+			})
+
+			var payload struct {
+				Help string `json:"help"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+				t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+			}
+			if !strings.Contains(payload.Help, "--max-pages") || !strings.Contains(payload.Help, "1-50") {
+				t.Fatalf("help missing page cap: %q", payload.Help)
+			}
+		})
 	}
 }
 

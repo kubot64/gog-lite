@@ -51,12 +51,80 @@ func TestScopesForServices_DeduplicatesDriveScope(t *testing.T) {
 	}
 	count := 0
 	for _, s := range scopes {
-		if s == "https://www.googleapis.com/auth/drive" {
+		if s == "https://www.googleapis.com/auth/drive.readonly" {
 			count++
+		}
+		if s == "https://www.googleapis.com/auth/drive" || s == "https://www.googleapis.com/auth/drive.file" {
+			t.Errorf("unexpected broad drive scope %q", s)
 		}
 	}
 	if count != 1 {
-		t.Errorf("drive scope should appear exactly once, got %d", count)
+		t.Errorf("drive.readonly scope should appear exactly once, got %d", count)
+	}
+}
+
+func TestScopes_PinnedToRuntimeClients(t *testing.T) {
+	want := map[googleauth.Service][]string{
+		googleauth.ServiceGmail: {
+			"https://www.googleapis.com/auth/gmail.readonly",
+			"https://www.googleapis.com/auth/gmail.compose",
+		},
+		googleauth.ServiceCalendar: {
+			"https://www.googleapis.com/auth/calendar.readonly",
+			"https://www.googleapis.com/auth/calendar",
+		},
+		googleauth.ServiceDocs: {
+			"https://www.googleapis.com/auth/documents.readonly",
+			"https://www.googleapis.com/auth/documents",
+			"https://www.googleapis.com/auth/drive.readonly",
+		},
+		googleauth.ServiceDrive: {
+			"https://www.googleapis.com/auth/drive.readonly",
+		},
+		googleauth.ServiceSheets: {
+			"https://www.googleapis.com/auth/spreadsheets.readonly",
+			"https://www.googleapis.com/auth/spreadsheets",
+		},
+		googleauth.ServiceSlides: {
+			"https://www.googleapis.com/auth/presentations.readonly",
+			"https://www.googleapis.com/auth/presentations",
+		},
+	}
+	forbidden := []string{
+		"https://www.googleapis.com/auth/gmail.modify",
+		"https://www.googleapis.com/auth/gmail.settings.basic",
+		"https://www.googleapis.com/auth/gmail.settings.sharing",
+		"https://www.googleapis.com/auth/drive",
+		"https://www.googleapis.com/auth/drive.file",
+	}
+
+	if len(want) != len(googleauth.AllServices()) {
+		t.Fatalf("pinned scopes cover %d services, AllServices has %d", len(want), len(googleauth.AllServices()))
+	}
+
+	for _, svc := range googleauth.AllServices() {
+		got, err := googleauth.Scopes(svc)
+		if err != nil {
+			t.Errorf("Scopes(%s): %v", svc, err)
+			continue
+		}
+		expected := want[svc]
+		if len(got) != len(expected) {
+			t.Errorf("Scopes(%s) = %v, want %v", svc, got, expected)
+			continue
+		}
+		for i := range expected {
+			if got[i] != expected[i] {
+				t.Errorf("Scopes(%s)[%d] = %q, want %q", svc, i, got[i], expected[i])
+			}
+		}
+		for _, bad := range forbidden {
+			for _, s := range got {
+				if s == bad {
+					t.Errorf("Scopes(%s) includes forbidden scope %s", svc, bad)
+				}
+			}
+		}
 	}
 }
 

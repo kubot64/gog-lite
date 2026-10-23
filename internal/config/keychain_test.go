@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestSecurityBinaryIsAbsolute(t *testing.T) {
+	if securityBinary != "/usr/bin/security" {
+		t.Fatalf("security binary = %q, want /usr/bin/security", securityBinary)
+	}
+	if !filepath.IsAbs(securityBinary) {
+		t.Fatalf("security binary %q is not absolute", securityBinary)
+	}
+}
+
 func TestReadCredentials_KeychainFallbackOnDarwin(t *testing.T) {
 	t.Setenv(clientIDEnvVar, "")
 	t.Setenv(clientSecretEnvVar, "")

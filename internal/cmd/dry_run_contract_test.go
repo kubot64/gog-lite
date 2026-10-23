@@ -34,6 +34,28 @@ func TestWriteCommandsDryRunContract(t *testing.T) {
 		validationPassedExpected bool
 	}{
 		{
+			name: "gmail send",
+			key:  "gmail send",
+			run: func() (string, error) {
+				cmd := &GmailSendCmd{
+					Account: "a@example.com",
+					To:      "to@example.com",
+					Subject: "weekly report",
+					Body:    "hello",
+				}
+
+				var err error
+				stdout := captureStdout(t, func() {
+					err = cmd.Run(context.Background(), &RootFlags{DryRun: true})
+				})
+
+				return stdout, err
+			},
+			action:                   "gmail.draft",
+			wouldCallAPI:             true,
+			validationPassedExpected: true,
+		},
+		{
 			name: "calendar create",
 			key:  "calendar create",
 			run: func() (string, error) {

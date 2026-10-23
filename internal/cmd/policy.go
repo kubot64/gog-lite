@@ -11,6 +11,7 @@ var defaultApprovalActions = []string{
 	"calendar.delete",
 	"docs.write.replace",
 	"docs.find_replace",
+	"sheets.update",
 	"slides.write",
 }
 
@@ -49,16 +50,24 @@ func actionRequiresApproval(action string) (bool, error) {
 	}
 
 	action = strings.ToLower(strings.TrimSpace(action))
-	required := p.RequireApprovalActions
-	if len(required) == 0 {
-		required = defaultApprovalActions
+	// require_approval_actions is united with the defaults.
+	// exempt_approval_actions drops a default. An action listed in both stays required.
+	if containsAction(p.RequireApprovalActions, action) {
+		return true, nil
+	}
+	if containsAction(p.ExemptApprovalActions, action) {
+		return false, nil
 	}
 
-	for _, v := range required {
+	return containsAction(defaultApprovalActions, action), nil
+}
+
+func containsAction(actions []string, action string) bool {
+	for _, v := range actions {
 		if v == action {
-			return true, nil
+			return true
 		}
 	}
 
-	return false, nil
+	return false
 }

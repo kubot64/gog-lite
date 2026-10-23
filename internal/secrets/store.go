@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/99designs/keyring"
-	"golang.org/x/term"
 
 	"github.com/kubot64/gog-lite/internal/config"
 )
@@ -23,11 +23,18 @@ const (
 var (
 	errMissingEmail           = errors.New("missing email")
 	errMissingRefreshToken    = errors.New("missing refresh token")
-	errNoTTY                  = errors.New("no TTY available for keyring file backend password prompt")
 	errKeyringTimeout         = errors.New("keyring connection timed out")
 	errMissingKeyringPassword = errors.New("GOG_LITE_KEYRING_PASSWORD must be set when using file keyring backend")
+	errInvalidSecretName      = errors.New("invalid secret name")
+	errReservedSecretName     = errors.New("secret name is reserved")
+	errEmptySecret            = errors.New("secret data is empty")
+	errInvalidSecretSize      = errors.New("secret size must be positive")
+	errUnexpectedSecretLength = errors.New("stored secret has unexpected length")
 	keyringOpenFunc           = keyring.Open
 )
+
+// ErrNotFound is returned when a keyring item does not exist.
+var ErrNotFound = keyring.ErrKeyNotFound
 
 // Token is stored in the keyring for each account.
 type Token struct {
@@ -52,19 +59,18 @@ type Store struct {
 
 const keyringOpenTimeout = 5 * time.Second
 
+// fileKeyringPasswordFunc supplies the file-backend passphrase.
+// A blank GOG_LITE_KEYRING_PASSWORD is rejected. There is no terminal prompt,
+// so an empty value cannot be used as the encryption key.
 func fileKeyringPasswordFunc() keyring.PromptFunc {
-	password, passwordSet := os.LookupEnv(keyringPasswordEnv)
-	if passwordSet {
-		return keyring.FixedStringPrompt(password)
+	password := os.Getenv(keyringPasswordEnv)
+	if strings.TrimSpace(password) == "" {
+		return func(string) (string, error) {
+			return "", errMissingKeyringPassword
+		}
 	}
 
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		return keyring.TerminalPrompt
-	}
-
-	return func(_ string) (string, error) {
-		return "", fmt.Errorf("%w; set %s", errNoTTY, keyringPasswordEnv)
-	}
+	return keyring.FixedStringPrompt(password)
 }
 
 func openKeyring() (keyring.Keyring, error) {
@@ -81,15 +87,20 @@ func openKeyring() (keyring.Keyring, error) {
 	case "keychain":
 		backends = []keyring.BackendType{keyring.KeychainBackend}
 	case "file":
-		if err := requireFileBackendPassword(backendEnv); err != nil {
-			return nil, err
-		}
 		backends = []keyring.BackendType{keyring.FileBackend}
 	default:
 		// On Linux with no D-Bus, force file backend to avoid hangs.
 		dbusAddr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
 		if runtime.GOOS == "linux" && dbusAddr == "" {
 			backends = []keyring.BackendType{keyring.FileBackend}
+		}
+	}
+
+	// Require a non-empty password whenever the file backend is selected,
+	// including the Linux fallback above.
+	if fileBackendSelected(backends) {
+		if err := requireFileBackendPassword(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -115,8 +126,18 @@ func openKeyring() (keyring.Keyring, error) {
 	return ring, nil
 }
 
-func requireFileBackendPassword(backendEnv string) error {
-	if backendEnv == "file" && strings.TrimSpace(os.Getenv(keyringPasswordEnv)) == "" {
+func fileBackendSelected(backends []keyring.BackendType) bool {
+	for _, backend := range backends {
+		if backend == keyring.FileBackend {
+			return true
+		}
+	}
+
+	return false
+}
+
+func requireFileBackendPassword() error {
+	if strings.TrimSpace(os.Getenv(keyringPasswordEnv)) == "" {
 		return errMissingKeyringPassword
 	}
 
@@ -277,4 +298,87 @@ func (s *Store) ListTokens() ([]Token, error) {
 	}
 
 	return out, nil
+}
+
+func validateSecretName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.Contains(name, "\x00") {
+		return errInvalidSecretName
+	}
+	if strings.HasPrefix(name, "token:") {
+		return errReservedSecretName
+	}
+
+	return nil
+}
+
+func cloneBytes(b []byte) []byte {
+	out := make([]byte, len(b))
+	copy(out, b)
+
+	return out
+}
+
+// GetSecret reads a non-token item from the keyring.
+func (s *Store) GetSecret(name string) ([]byte, error) {
+	if err := validateSecretName(name); err != nil {
+		return nil, err
+	}
+
+	item, err := s.ring.Get(name)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("read secret: %w", err)
+	}
+
+	return cloneBytes(item.Data), nil
+}
+
+// SetSecret writes a non-token item to the keyring.
+func (s *Store) SetSecret(name string, data []byte) error {
+	if err := validateSecretName(name); err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return errEmptySecret
+	}
+
+	if err := s.ring.Set(keyringItem(name, cloneBytes(data))); err != nil {
+		return fmt.Errorf("store secret: %w", err)
+	}
+
+	return nil
+}
+
+// GetOrCreateSecret returns an existing secret of the given size, or stores a new random one.
+// Callers that share a name across processes must serialize creation themselves.
+func (s *Store) GetOrCreateSecret(name string, size int) ([]byte, error) {
+	if size <= 0 {
+		return nil, errInvalidSecretSize
+	}
+
+	existing, err := s.GetSecret(name)
+	if err == nil {
+		if len(existing) != size {
+			return nil, errUnexpectedSecretLength
+		}
+
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, fmt.Errorf("generate secret: %w", err)
+	}
+	if err := s.SetSecret(name, buf); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
 }

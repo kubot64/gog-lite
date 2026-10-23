@@ -6,7 +6,7 @@
 
 ## 前提条件
 
-- Go 1.24 以上がインストールされていること
+- Go 1.26.9 以上がインストールされていること
 - Google アカウント（Gmail）を持っていること
 - ターミナルの基本操作ができること
 
@@ -37,7 +37,7 @@ gog-lite --version
 
 ## 2. Google Cloud でアプリを登録する
 
-gog-lite は Google の OAuth を使って Gmail / Calendar / Docs にアクセスします。
+gog-lite は Google の OAuth を使って Gmail / Calendar / Docs / Sheets / Slides にアクセスします。
 最初に一度だけ Google Cloud Console での設定が必要です。
 
 ### 2-1. プロジェクトを作成する
@@ -55,6 +55,8 @@ gog-lite は Google の OAuth を使って Gmail / Calendar / Docs にアクセ�
 | メール操作 | Gmail API |
 | カレンダー操作 | Google Calendar API |
 | ドキュメント操作 | Google Docs API・Google Drive API |
+| スプレッドシート操作 | Google Sheets API |
+| プレゼンテーション操作 | Google Slides API |
 
 ### 2-3. OAuth クライアントを作成する
 
@@ -94,6 +96,8 @@ security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_ID -w '<YOUR_CLIENT_
 security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_SECRET -w '<YOUR_CLIENT_SECRET>' -U
 ```
 
+gog-lite が Keychain から読むときは `/usr/bin/security` を使う。PATH 上の `security` は見ない。
+
 > `YOUR_CLIENT_ID` / `YOUR_CLIENT_SECRET` はダウンロードした JSON の値を使用してください。
 
 ---
@@ -113,16 +117,22 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 ```json
 {
   "auth_url": "https://accounts.google.com/o/oauth2/auth?...",
-  "next_step": "Open auth_url in a browser, then run this command again with --auth-url <redirect_url>"
+  "next_step": "run again with --auth-url <redirect URL from browser>"
 }
 ```
+
+10 分以内にステップ 1 をやり直すと、前回の認証 URL をそのまま返すことがあります。Linux と macOS で返すのは、前回のポートで gog-lite が案内ページを出し続けているときだけです。別のソフトがそのポートを使っているときは、新しい認証 URL を出します。表示された `auth_url` を開いてください。
+
+Windows ではポートを保持しません。案内ページは開かないので、アドレスバーの URL をコピーしてください。10 分以内にやり直したとき、前回のポートが空いていれば同じ認証 URL を返します。別のソフトが使っているときは、新しい認証 URL を出します。
 
 ### ステップ 2：ブラウザで認可してトークンを保存する
 
 1. `auth_url` の値をブラウザで開く
 2. Google アカウントでログインして「許可」
 3. リダイレクト先の URL（`http://127.0.0.1:...?code=...` のような URL）をコピー
-   - ページが読み込めなくてもOK。URL だけコピーすれば大丈夫です
+   - Linux と macOS でステップ 1 がポートをつかんでいる間は、URL のコピーを案内するページが開きます
+   - Windows ではページは開きません。アドレスバーの URL をコピーしてください
+   - ページが開かなくても、アドレスバーの URL をコピーすれば大丈夫です
 4. コピーした URL を `--auth-url` に渡す：
 
 ```bash
@@ -220,6 +230,10 @@ ls ~/.config/gog-lite/
 
 ステップ 3 の認証が完了していません。`auth login` を最初からやり直してください。
 
+### 以前ログインしたアカウントで API が失敗する
+
+ログイン時の OAuth スコープを、各コマンドが使う範囲へ狭めています。保存済みの refresh token は広い権限のままなので、[README の再認証手順](../README.md#スコープを狭めたあとの再認証) のとおり、Google アカウント側のアクセス権を削除してから `auth remove` と `auth login --force-consent` を実行してください。同意画面を出し直すだけでは、過去のスコープは外れません。
+
 ### `エラー 403: access_denied` が出る
 
 OAuth 同意画面の **Test users** に対象 Gmail が追加されていない可能性があります。  
@@ -227,7 +241,7 @@ OAuth 同意画面の **Test users** に対象 Gmail が追加されていない
 
 ### `keyring_error` が出る（Linux / ヘッドレス環境）
 
-OS のキーリングが使えない環境では、ファイルバックエンドを使います：
+OS のキーリングが使えない環境では、ファイルバックエンドを使います。Linux でセッションバスが無いとき（`DBUS_SESSION_BUS_ADDRESS` も `/run/user/<uid>/bus` も無いとき）は、自動でファイルバックエンドになります。どちらの場合も `GOG_LITE_KEYRING_PASSWORD` が必須で、未設定・空文字・空白だけは `keyring_error` になります。パスワードの入力プロンプトは出ません。
 
 ```bash
 export GOG_LITE_KEYRING_BACKEND=file

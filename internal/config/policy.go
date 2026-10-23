@@ -11,10 +11,13 @@ import (
 )
 
 // PolicyFile stores execution constraints for AI-agent operations.
+// RequireApprovalActions is united with the built-in approval defaults.
+// ExemptApprovalActions drops a default unless that action is also required.
 type PolicyFile struct {
 	AllowedActions         []string `json:"allowed_actions,omitempty"`
 	BlockedAccounts        []string `json:"blocked_accounts,omitempty"`
 	RequireApprovalActions []string `json:"require_approval_actions,omitempty"`
+	ExemptApprovalActions  []string `json:"exempt_approval_actions,omitempty"`
 }
 
 var policyMu sync.Mutex
@@ -99,6 +102,7 @@ func (p *PolicyFile) normalize() {
 	p.AllowedActions = normalizeUnique(p.AllowedActions)
 	p.BlockedAccounts = normalizeUnique(p.BlockedAccounts)
 	p.RequireApprovalActions = normalizeUnique(p.RequireApprovalActions)
+	p.ExemptApprovalActions = normalizeUnique(p.ExemptApprovalActions)
 }
 
 func normalizeUnique(in []string) []string {

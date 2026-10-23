@@ -140,6 +140,10 @@ func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
+	if err := enforceWriteRateLimit("docs.create"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
@@ -217,9 +221,6 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
-	if err := ensureWithinAllowedOutputDir(c.Output, root.AllowedOutputDir); err != nil {
-		return output.WriteError(output.ExitCodeError, "output_not_allowed", err.Error())
-	}
 	if err := rejectOutputPathSymlinks(c.Output); err != nil {
 		return output.WriteError(output.ExitCodeError, "output_not_allowed", err.Error())
 	}
@@ -239,6 +240,10 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 			"output":    c.Output,
 			"overwrite": c.Overwrite,
 		}, dryRunPayloadOptions{WouldCallAPI: true}))
+	}
+
+	if err := enforceWriteRateLimit("docs.export"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
 	driveSvc, err := currentCommandDeps().newDriveReadOnlyService(ctx, c.Account)
@@ -283,7 +288,7 @@ type DocsWriteCmd struct {
 	ContentStdin      bool   `name:"content-stdin" help:"Read content from stdin."`
 	Replace           bool   `name:"replace" help:"Replace all existing content."`
 	ConfirmReplace    bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
-	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 	ApprovalTokenFile string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
@@ -304,24 +309,9 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
-	if c.Replace && !c.ConfirmReplace {
+	if !dryRun && c.Replace && !c.ConfirmReplace {
 		return output.WriteError(output.ExitCodeError, "replace_requires_confirmation",
 			"--replace requires --confirm-replace to reduce destructive mistakes")
-	}
-	if !dryRun && c.Replace {
-		required, err := actionRequiresApproval("docs.write.replace")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
-			if err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-			if err := consumeApprovalToken(c.Account, "docs.write.replace", token); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
 	}
 
 	if dryRun {
@@ -352,6 +342,26 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 			RequiresApprovalToken: required,
 			WouldCallAPI:          true,
 		}))
+	}
+
+	if err := enforceWriteRateLimit("docs.write"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	if c.Replace {
+		required, err := actionRequiresApproval("docs.write.replace")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
+		if required {
+			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+			if err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+			if err := consumeApprovalToken(c.Account, "docs.write.replace", token); err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+		}
 	}
 
 	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
@@ -428,7 +438,7 @@ type DocsFindReplaceCmd struct {
 	Replace            string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase          bool   `name:"match-case" help:"Case-sensitive matching."`
 	ConfirmFindReplace bool   `name:"confirm-find-replace" help:"Required confirmation flag for find-replace operations."`
-	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 	ApprovalTokenFile  string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
@@ -440,21 +450,6 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 	if !dryRun && !c.ConfirmFindReplace {
 		return output.WriteError(output.ExitCodeError, "find_replace_requires_confirmation",
 			"docs find-replace requires --confirm-find-replace")
-	}
-	if !dryRun {
-		required, err := actionRequiresApproval("docs.find_replace")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
-			if err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-			if err := consumeApprovalToken(c.Account, "docs.find_replace", token); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
 	}
 
 	if dryRun {
@@ -483,7 +478,25 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 		}))
 	}
 
-	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
+	if err := enforceWriteRateLimit("docs.find_replace"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("docs.find_replace")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+		if err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+		if err := consumeApprovalToken(c.Account, "docs.find_replace", token); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+	}
+
+	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}

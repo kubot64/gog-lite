@@ -145,7 +145,7 @@ type SlidesWriteCmd struct {
 	Replace           string `name:"replace" required:"" help:"Replacement text."`
 	MatchCase         bool   `name:"match-case" help:"Case-sensitive matching (default: false)."`
 	ConfirmWrite      bool   `name:"confirm-write" help:"Required confirmation flag for write operations."`
-	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 	ApprovalTokenFile string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
@@ -157,22 +157,6 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	if !root.DryRun && !c.ConfirmWrite {
 		return output.WriteError(output.ExitCodeError, "write_requires_confirmation",
 			"slides write requires --confirm-write")
-	}
-
-	if !root.DryRun {
-		required, err := actionRequiresApproval("slides.write")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
-			if err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-			if err := consumeApprovalToken(c.Account, "slides.write", token); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
 	}
 
 	if root.DryRun {
@@ -199,6 +183,24 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 			RequiresApprovalToken: required,
 			WouldCallAPI:          true,
 		}))
+	}
+
+	if err := enforceWriteRateLimit("slides.write"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("slides.write")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+		if err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+		if err := consumeApprovalToken(c.Account, "slides.write", token); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
 	}
 
 	svc, err := googleapi.NewSlidesWrite(ctx, c.Account)

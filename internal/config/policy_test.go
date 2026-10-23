@@ -16,7 +16,8 @@ func TestReadWritePolicy(t *testing.T) {
 	p := config.PolicyFile{
 		AllowedActions:         []string{"gmail.send", "calendar.create"},
 		BlockedAccounts:        []string{"bad@example.com"},
-		RequireApprovalActions: []string{"calendar.delete"},
+		RequireApprovalActions: []string{"Calendar.Delete", "calendar.delete"},
+		ExemptApprovalActions:  []string{" Slides.Write ", "slides.write"},
 	}
 	if err := config.WritePolicy(p); err != nil {
 		t.Fatalf("WritePolicy: %v", err)
@@ -28,6 +29,12 @@ func TestReadWritePolicy(t *testing.T) {
 	}
 	if len(got.AllowedActions) != 2 {
 		t.Fatalf("allowed_actions len=%d", len(got.AllowedActions))
+	}
+	if len(got.RequireApprovalActions) != 1 || got.RequireApprovalActions[0] != "calendar.delete" {
+		t.Fatalf("require_approval_actions = %#v", got.RequireApprovalActions)
+	}
+	if len(got.ExemptApprovalActions) != 1 || got.ExemptApprovalActions[0] != "slides.write" {
+		t.Fatalf("exempt_approval_actions = %#v", got.ExemptApprovalActions)
 	}
 }
 

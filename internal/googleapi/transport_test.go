@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +159,208 @@ func TestRetryTransport_429RetryAfterHeader(t *testing.T) {
 	}
 	if resp.StatusCode != 200 {
 		t.Errorf("want 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestCalculateBackoff_RetryAfterSecondsCapped(t *testing.T) {
+	rt := &RetryTransport{BaseDelay: time.Second}
+	tests := []struct {
+		header string
+		want   time.Duration
+	}{
+		{header: "0", want: 0},
+		{header: "-1", want: 0},
+		{header: "1", want: time.Second},
+		{header: "29", want: 29 * time.Second},
+		{header: "30", want: maxRetryAfter},
+		{header: "31", want: maxRetryAfter},
+		{header: "86400", want: maxRetryAfter},
+	}
+	for _, tt := range tests {
+		resp := mockResp(429)
+		resp.Header.Set("Retry-After", tt.header)
+		if got := rt.calculateBackoff(0, resp); got != tt.want {
+			t.Errorf("Retry-After %q = %s, want %s", tt.header, got, tt.want)
+		}
+	}
+}
+
+func TestCalculateBackoff_RetryAfterOverflowCaps(t *testing.T) {
+	// 9223372037 seconds overflows time.Duration when multiplied by time.Second.
+	const header = "9223372037"
+	if _, err := strconv.Atoi(header); err != nil {
+		t.Skip("platform int cannot represent an overflowing Retry-After")
+	}
+
+	rt := &RetryTransport{BaseDelay: time.Second}
+	resp := mockResp(429)
+	resp.Header.Set("Retry-After", header)
+	if got := rt.calculateBackoff(0, resp); got != maxRetryAfter {
+		t.Fatalf("overflow Retry-After = %s, want %s", got, maxRetryAfter)
+	}
+}
+
+func TestCalculateBackoff_RetryAfterHTTPDateCapped(t *testing.T) {
+	rt := &RetryTransport{BaseDelay: time.Second}
+
+	far := mockResp(429)
+	far.Header.Set("Retry-After", time.Now().Add(2*time.Hour).UTC().Format(http.TimeFormat))
+	if got := rt.calculateBackoff(0, far); got != maxRetryAfter {
+		t.Fatalf("far HTTP-date = %s, want %s", got, maxRetryAfter)
+	}
+
+	past := mockResp(429)
+	past.Header.Set("Retry-After", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat))
+	if got := rt.calculateBackoff(0, past); got != 0 {
+		t.Fatalf("past HTTP-date = %s, want 0", got)
+	}
+
+	soon := mockResp(429)
+	soon.Header.Set("Retry-After", time.Now().Add(10*time.Second).UTC().Format(http.TimeFormat))
+	got := rt.calculateBackoff(0, soon)
+	if got <= 0 || got > 11*time.Second || got >= maxRetryAfter {
+		t.Fatalf("short HTTP-date = %s, want a delay under 30s", got)
+	}
+}
+
+func TestCalculateBackoff_InvalidRetryAfterUsesBackoff(t *testing.T) {
+	rt := &RetryTransport{BaseDelay: time.Second}
+	resp := mockResp(429)
+	resp.Header.Set("Retry-After", "not-a-date")
+	got := rt.calculateBackoff(0, resp)
+	if got < time.Second || got >= time.Second+time.Second/2 {
+		t.Fatalf("invalid Retry-After = %s, want backoff in [1s, 1.5s)", got)
+	}
+}
+
+func TestRetryDelayFits(t *testing.T) {
+	if !retryDelayFits(context.Background(), maxRetryAfter) {
+		t.Fatal("a delay should fit when the context has no deadline")
+	}
+	if !retryDelayFits(context.Background(), 0) {
+		t.Fatal("a zero delay should fit")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if !retryDelayFits(ctx, time.Second) {
+		t.Fatal("1s delay should fit in a 2s deadline")
+	}
+	if retryDelayFits(ctx, 2*time.Second) {
+		t.Fatal("a delay equal to the deadline should not fit")
+	}
+	if retryDelayFits(ctx, maxRetryAfter) {
+		t.Fatal("capped Retry-After should not fit in a 2s deadline")
+	}
+}
+
+func TestRetryTransport_SkipsRetryAfterThatExceedsDeadline(t *testing.T) {
+	resp429 := mockResp(429)
+	resp429.Header.Set("Retry-After", "30")
+	mock := &mockTransport{responses: []*http.Response{resp429, mockResp(200)}}
+	rt := &RetryTransport{Base: mock, MaxRetries429: 3, MaxRetries5xx: 1, BaseDelay: time.Second}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	start := time.Now()
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", resp.StatusCode)
+	}
+	if mock.callCount != 1 {
+		t.Fatalf("calls = %d, want 1", mock.callCount)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("elapsed %s, want no Retry-After sleep", elapsed)
+	}
+}
+
+func TestRetryTransport_ZeroRetryAfterStillRetriesUnderDeadline(t *testing.T) {
+	resp429 := mockResp(429)
+	resp429.Header.Set("Retry-After", "0")
+	mock := &mockTransport{responses: []*http.Response{resp429, mockResp(200)}}
+	rt := &RetryTransport{Base: mock, MaxRetries429: 3, MaxRetries5xx: 1, BaseDelay: time.Second}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if mock.callCount != 2 {
+		t.Fatalf("calls = %d, want 2", mock.callCount)
+	}
+}
+
+func TestRetryTransport_ClientTimeoutDoesNotSleepOutRetryAfter(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &http.Client{
+		Timeout:   time.Second,
+		Transport: NewRetryTransport(http.DefaultTransport),
+	}
+	start := time.Now()
+	resp, err := client.Get(srv.URL)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", resp.StatusCode)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("elapsed %s, want no Retry-After sleep", elapsed)
+	}
+}
+
+func TestRetryTransport_CancelledContextWithRetryAfter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp429 := mockResp(429)
+	resp429.Header.Set("Retry-After", "30")
+	mock := &mockTransport{responses: []*http.Response{resp429, mockResp(200)}}
+	rt := &RetryTransport{Base: mock, MaxRetries429: 3, MaxRetries5xx: 1, BaseDelay: time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	resp, err := rt.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected a context error")
+	}
+	if resp != nil {
+		t.Fatalf("status = %d, want no response", resp.StatusCode)
+	}
+	if mock.callCount != 1 {
+		t.Fatalf("calls = %d, want 1", mock.callCount)
 	}
 }
 

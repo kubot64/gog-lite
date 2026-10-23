@@ -1,5 +1,5 @@
 class GogLite < Formula
-  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs"
+  desc "CLI for AI agents to operate Gmail / Google Calendar / Google Docs / Google Sheets / Google Slides"
   homepage "https://github.com/kubot64/gog-lite"
   version "2026.0227.0349"
   license "MIT"

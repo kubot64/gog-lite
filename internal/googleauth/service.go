@@ -23,31 +23,52 @@ const (
 	scopeOpenID        = "openid"
 	scopeEmail         = "email"
 	scopeUserinfoEmail = "https://www.googleapis.com/auth/userinfo.email"
+
+	scopeGmailReadonly    = "https://www.googleapis.com/auth/gmail.readonly"
+	scopeGmailCompose     = "https://www.googleapis.com/auth/gmail.compose"
+	scopeCalendarReadonly = "https://www.googleapis.com/auth/calendar.readonly"
+	scopeCalendar         = "https://www.googleapis.com/auth/calendar"
+	scopeDocsReadonly     = "https://www.googleapis.com/auth/documents.readonly"
+	scopeDocs             = "https://www.googleapis.com/auth/documents"
+	scopeDriveReadonly    = "https://www.googleapis.com/auth/drive.readonly"
+	scopeSheetsReadonly   = "https://www.googleapis.com/auth/spreadsheets.readonly"
+	scopeSheets           = "https://www.googleapis.com/auth/spreadsheets"
+	scopeSlidesReadonly   = "https://www.googleapis.com/auth/presentations.readonly"
+	scopeSlides           = "https://www.googleapis.com/auth/presentations"
 )
 
 var errUnknownService = errors.New("unknown service")
 
+// serviceScopes is the consent set for each service. It is the union of the
+// scopes runtime API clients actually send. Docs export calls Drive
+// files.export on an existing document ID. That method allows drive,
+// drive.file, and drive.readonly, but drive.file only reaches files this app
+// created or opened through the Google Picker, so drive.readonly is the
+// narrow scope that still works. The full drive scope is not requested.
 var serviceScopes = map[Service][]string{
 	ServiceGmail: {
-		"https://www.googleapis.com/auth/gmail.modify",
-		"https://www.googleapis.com/auth/gmail.settings.basic",
-		"https://www.googleapis.com/auth/gmail.settings.sharing",
+		scopeGmailReadonly,
+		scopeGmailCompose,
 	},
 	ServiceCalendar: {
-		"https://www.googleapis.com/auth/calendar",
+		scopeCalendarReadonly,
+		scopeCalendar,
 	},
 	ServiceDocs: {
-		"https://www.googleapis.com/auth/drive",
-		"https://www.googleapis.com/auth/documents",
+		scopeDocsReadonly,
+		scopeDocs,
+		scopeDriveReadonly,
 	},
 	ServiceDrive: {
-		"https://www.googleapis.com/auth/drive",
+		scopeDriveReadonly,
 	},
 	ServiceSheets: {
-		"https://www.googleapis.com/auth/spreadsheets",
+		scopeSheetsReadonly,
+		scopeSheets,
 	},
 	ServiceSlides: {
-		"https://www.googleapis.com/auth/presentations",
+		scopeSlidesReadonly,
+		scopeSlides,
 	},
 }
 

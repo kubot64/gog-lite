@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/99designs/keyring"
+
 	"github.com/kubot64/gog-lite/internal/config"
 	"github.com/kubot64/gog-lite/internal/googleauth"
 	"github.com/kubot64/gog-lite/internal/output"
@@ -16,12 +18,12 @@ import (
 
 // AuthCmd groups auth subcommands.
 type AuthCmd struct {
-	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow)."`
+	Login           AuthLoginCmd           `cmd:"" help:"Authenticate a Google account (2-step headless flow). On Linux and macOS, step 1 reuses a saved auth URL only while this program still serves the callback port. On Windows the port is not held; copy the address-bar URL, and a saved URL is reused only while that port is free."`
 	List            AuthListCmd            `cmd:"" help:"List authenticated accounts."`
 	Remove          AuthRemoveCmd          `cmd:"" help:"Remove a stored account token."`
 	Preflight       AuthPreflightCmd       `cmd:"" help:"Check readiness for AI-agent operations."`
 	ApprovalToken   AuthApprovalTokenCmd   `cmd:"" help:"Issue one-time approval token for dangerous actions."`
-	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Immediately revoke account token and block account by policy."`
+	EmergencyRevoke AuthEmergencyRevokeCmd `cmd:"" help:"Revoke the Google refresh token and block the account. Delete the local token only when revoke is confirmed. An address already in blocked_accounts is not added again."`
 }
 
 // AuthLoginCmd implements the 2-step headless OAuth flow.
@@ -30,7 +32,7 @@ type AuthCmd struct {
 // Step 2 (--auth-url set): exchanges code, stores token, prints {"stored": true, ...}
 type AuthLoginCmd struct {
 	Account      string `name:"account" required:"" short:"a" help:"Google account email."`
-	Services     string `name:"services" default:"gmail,calendar,docs" help:"Comma-separated services to authorize (gmail,calendar,docs,drive)."`
+	Services     string `name:"services" default:"gmail,calendar,docs" help:"Comma-separated services to authorize (gmail, calendar, docs, drive, sheets, slides)."`
 	AuthURL      string `name:"auth-url" help:"Redirect URL from browser (step 2)."`
 	ForceConsent bool   `name:"force-consent" help:"Force Google consent screen (re-requests refresh token)."`
 }
@@ -67,7 +69,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 	if strings.TrimSpace(c.AuthURL) != "" {
 		result, err := deps.authStep2(ctx, creds, opts, c.AuthURL)
 		if err != nil {
-			return output.WriteError(output.ExitCodeError, "auth_exchange_error", err.Error())
+			return output.WriteError(output.ExitCodeError, "auth_exchange_error", authExchangeErrorMessage(err))
 		}
 		tokenEmail := normalizeEmail(result.Email)
 		if tokenEmail == "" || tokenEmail != account {
@@ -338,22 +340,76 @@ type AuthEmergencyRevokeCmd struct {
 	Account string `name:"account" required:"" short:"a" help:"Google account email to revoke and block."`
 }
 
-func (c *AuthEmergencyRevokeCmd) Run(_ context.Context, root *RootFlags) error {
+// revokeRefreshToken posts the refresh token to Google. Tests replace it.
+var revokeRefreshToken = googleauth.RevokeRefreshToken
+
+func (c *AuthEmergencyRevokeCmd) Run(ctx context.Context, root *RootFlags) error {
 	account := normalizeEmail(c.Account)
+	if root.DryRun {
+		if err := appendAuditLog(root.AuditLog, auditEntry{
+			Action:  "auth.emergency_revoke",
+			Account: account,
+			DryRun:  true,
+		}); err != nil {
+			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
+		}
+
+		return output.WriteJSON(os.Stdout, map[string]any{
+			"dry_run": true,
+			"action":  "auth.emergency_revoke",
+			"params": map[string]any{
+				"account": account,
+			},
+		})
+	}
+
 	store, err := secrets.OpenDefault()
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "keyring_error", err.Error())
 	}
 
+	tok, err := store.GetToken(account)
+	if err != nil {
+		if errors.Is(err, keyring.ErrKeyNotFound) {
+			if err := blockAccount(account); err != nil {
+				return err
+			}
+			return output.WriteError(
+				output.ExitCodeNotFound,
+				"remote_revoke_failed",
+				"リモート失効に失敗した。保存された refresh token がない。ローカルではブロック済み",
+			)
+		}
+
+		return output.WriteError(output.ExitCodeError, "keyring_error", err.Error())
+	}
+
+	err = revokeRefreshToken(ctx, tok.RefreshToken)
+	switch {
+	case err == nil:
+		return finishEmergencyRevoke(store, root, account, false)
+	case errors.Is(err, googleauth.ErrAlreadyRevoked):
+		return finishEmergencyRevoke(store, root, account, true)
+	default:
+		// Revoke was not confirmed (transport error, 5xx, or a refusal other than
+		// invalid_token). Block locally anyway and keep the refresh token for retry.
+		if blockErr := blockAccount(account); blockErr != nil {
+			return blockErr
+		}
+		return output.WriteError(
+			output.ExitCodeError,
+			"remote_revoke_failed",
+			fmt.Sprintf("リモート失効に失敗した。ローカルではブロック済み。トークンは残っているので再実行する: %s", err.Error()),
+		)
+	}
+}
+
+func finishEmergencyRevoke(store *secrets.Store, root *RootFlags, account string, alreadyRevoked bool) error {
 	if err := store.DeleteToken(account); err != nil {
 		return output.WriteError(output.ExitCodeError, "remove_error", err.Error())
 	}
-
-	if err := config.UpdatePolicy(func(p *config.PolicyFile) error {
-		p.BlockedAccounts = append(p.BlockedAccounts, account)
-		return nil
-	}); err != nil {
-		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	if err := blockAccount(account); err != nil {
+		return err
 	}
 	if err := appendAuditLog(root.AuditLog, auditEntry{
 		Action:  "auth.emergency_revoke",
@@ -364,10 +420,33 @@ func (c *AuthEmergencyRevokeCmd) Run(_ context.Context, root *RootFlags) error {
 	}
 
 	return output.WriteJSON(os.Stdout, map[string]any{
-		"revoked": true,
-		"blocked": true,
-		"email":   account,
+		"revoked":         true,
+		"already_revoked": alreadyRevoked,
+		"blocked":         true,
+		"email":           account,
 	})
+}
+
+func blockAccount(account string) error {
+	account = normalizeEmail(account)
+	p, err := config.ReadPolicy()
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	// ReadPolicy already stores normalized addresses. Skip the write so a retry
+	// does not duplicate the entry or rewrite policy.json.
+	for _, blocked := range p.BlockedAccounts {
+		if blocked == account {
+			return nil
+		}
+	}
+	if err := config.UpdatePolicy(func(p *config.PolicyFile) error {
+		p.BlockedAccounts = append(p.BlockedAccounts, account)
+		return nil
+	}); err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	return nil
 }
 
 // parseServices parses a comma-separated list of service names.

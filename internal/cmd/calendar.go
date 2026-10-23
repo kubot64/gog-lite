@@ -72,8 +72,9 @@ type CalendarListCmd struct {
 	CalendarID string `name:"calendar-id" default:"primary" help:"Calendar ID."`
 	From       string `name:"from" help:"Start time in RFC3339 format."`
 	To         string `name:"to" help:"End time in RFC3339 format."`
-	Max        int64  `name:"max" default:"20" help:"Maximum results."`
-	AllPages   bool   `name:"all-pages" help:"Fetch all pages of results."`
+	Max        int64  `name:"max" default:"20" help:"Maximum results per page."`
+	AllPages   bool   `name:"all-pages" help:"Fetch pages until nextPageToken is empty or --max-pages is reached."`
+	MaxPages   int    `name:"max-pages" default:"10" help:"Page cap for --all-pages (1-50). When the cap is hit, nextPageToken is returned."`
 	Page       string `name:"page" help:"Page token for pagination."`
 	Query      string `name:"query" short:"q" help:"Free text search query."`
 }
@@ -81,6 +82,10 @@ type CalendarListCmd struct {
 func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 	if err := enforceActionPolicy(c.Account, "calendar.list"); err != nil {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
+	}
+
+	if err := validateMaxPages(c.MaxPages); err != nil {
+		return output.WriteError(output.ExitCodeError, "invalid_arguments", err.Error())
 	}
 
 	if err := enforceRateLimit("calendar.list", 120, time.Minute); err != nil {
@@ -110,7 +115,7 @@ func (c *CalendarListCmd) Run(ctx context.Context, _ *RootFlags) error {
 		Status      string `json:"status,omitempty"`
 	}
 
-	events, nextPageToken, err := collectAllPages(c.AllPages, func(pageToken string) (string, []eventRef, error) {
+	events, nextPageToken, err := collectAllPages(c.AllPages, c.MaxPages, func(pageToken string) (string, []eventRef, error) {
 		req := svc.Events.List(c.CalendarID).
 			MaxResults(c.Max).
 			SingleEvents(true).
@@ -246,6 +251,10 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
+	if err := enforceWriteRateLimit("calendar.create"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	svc, err := currentCommandDeps().newCalendarWriteService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
@@ -334,6 +343,10 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
+	if err := enforceWriteRateLimit("calendar.update"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
 	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
@@ -393,7 +406,7 @@ type CalendarDeleteCmd struct {
 	EventID           string `name:"event-id" required:"" help:"Calendar event ID."`
 	CalendarID        string `name:"calendar-id" default:"primary" help:"Calendar ID."`
 	ConfirmDelete     bool   `name:"confirm-delete" help:"Required confirmation flag for delete operations."`
-	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions."`
+	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
 	ApprovalTokenFile string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
@@ -407,22 +420,6 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "delete_requires_confirmation",
 			"calendar delete requires --confirm-delete")
 	}
-	if !dryRun {
-		required, err := actionRequiresApproval("calendar.delete")
-		if err != nil {
-			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
-		}
-		if required {
-			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
-			if err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-			if err := consumeApprovalToken(c.Account, "calendar.delete", token); err != nil {
-				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
-			}
-		}
-	}
-
 	if dryRun {
 		required, err := actionRequiresApproval("calendar.delete")
 		if err != nil {
@@ -447,7 +444,25 @@ func (c *CalendarDeleteCmd) Run(ctx context.Context, root *RootFlags) error {
 		}))
 	}
 
-	svc, err := googleapi.NewCalendarWrite(ctx, c.Account)
+	if err := enforceWriteRateLimit("calendar.delete"); err != nil {
+		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
+	}
+
+	required, err := actionRequiresApproval("calendar.delete")
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+	}
+	if required {
+		token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+		if err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+		if err := consumeApprovalToken(c.Account, "calendar.delete", token); err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+	}
+
+	svc, err := currentCommandDeps().newCalendarWriteService(ctx, c.Account)
 	if err != nil {
 		return calendarAuthError(err)
 	}

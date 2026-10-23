@@ -28,20 +28,6 @@ const (
 	scopeSlidesWrite      = "https://www.googleapis.com/auth/presentations"
 )
 
-// Legacy constructors — delegate to read-only variants for least privilege.
-func NewGmail(ctx context.Context, email string) (*gmail.Service, error) {
-	return NewGmailReadOnly(ctx, email)
-}
-func NewCalendar(ctx context.Context, email string) (*calendar.Service, error) {
-	return NewCalendarReadOnly(ctx, email)
-}
-func NewDocs(ctx context.Context, email string) (*docs.Service, error) {
-	return NewDocsReadOnly(ctx, email)
-}
-func NewDrive(ctx context.Context, email string) (*drive.Service, error) {
-	return NewDriveReadOnly(ctx, email)
-}
-
 func NewGmailReadOnly(ctx context.Context, email string) (*gmail.Service, error) {
 	opts, err := optionsForEmailWithScopes(ctx, string(googleauth.ServiceGmail), email, []string{scopeGmailReadonly})
 	if err != nil {

@@ -1,6 +1,6 @@
 # gog-lite
 
-AIエージェントが Gmail / Google Calendar / Google Docs を操作するためのシンプルな CLI。
+AIエージェントが Gmail / Google Calendar / Google Docs / Google Sheets / Google Slides を操作するためのシンプルな CLI。
 
 [gogcli](https://github.com/steipete/gogcli) の多機能さをAIエージェント向けに絞り込んだ派生版。
 
@@ -8,18 +8,41 @@ AIエージェントが Gmail / Google Calendar / Google Docs を操作するた
 
 - **stdout は常に JSON** — `--help` / `--version` を含め、色・表・TSV は出力しない
 - **stderr は常に JSON エラー** — `{"error": "...", "code": "..."}` を返し、stdout と混在しない
-- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`
+- **終了コードは固定** — `0=成功 / 1=エラー / 2=認証エラー / 3=未発見 / 4=権限なし`。終了コード 2 の `auth_required` は、トークンが無いとき、Google API が HTTP 401 を返したとき、および token endpoint が `invalid_grant` を返したとき（失効・取り消し済みの refresh token）。`invalid_grant` の `error` には refresh token も応答本文も含めない。token endpoint のそれ以外の失敗は終了コード 1 のまま。`error` は固定文 `token endpoint request failed` と、取り出せた短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`error_description` と応答本文は出さない。コードを取り出せないときも本文は出さず、固定文だけになる。`auth login` のコード交換が token endpoint で失敗したときも同じ固定文を使う。`code` は `auth_exchange_error`、終了コードは 1 のまま（`invalid_grant` でも `auth_required` にはしない）。`error_description`、`error_uri`、応答本文は出さない。token endpoint 以外の失敗（state の不一致など）は、そのエラーメッセージのまま。`auth login` の userinfo が HTTP 200 以外のときも `code` は `auth_exchange_error`、終了コードは 1。`error` は固定文 `userinfo request failed` と HTTP ステータスコードだけ（例: `userinfo request failed (HTTP 401)`）。応答本文と `error_description` は出さない。Google API の HTTP 401 で、応答に message が無く本文だけがあるとき、`error` は `googleapi: got HTTP response code 401` だけで応答本文は出さない。`code` は `auth_required`、終了コードは 2 のまま。パースできた message は従来どおり出す
 - **破壊的操作には安全制御がある** — `confirm` フラグと、必要に応じて `approval-token` を要求する
-- **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる
+- **Sheets のセル値は既定で RAW** — `=` で始まる文字列を数式にしない。数式にするときだけ `--value-input USER_ENTERED`。`sheets update` は `--confirm-write` と approval-token が必要
+- **`--dry-run` は書き込み前の標準確認手段** — 実行前に API 呼び出しなしで内容確認できる。`docs write --replace` では `--confirm-replace` も承認トークンも要らない
 - **`gmail send` は下書き保存契約** — 即時送信ではなく Gmail draft として保存する
+- **`--all-pages` はページ数に上限がある** — `gmail search` と `calendar list` の `--max-pages` は既定 10、最大 50。上限で打ち切ったときは `nextPageToken` を返す
 
 ## Safety Controls
 
 - `--dry-run` — 書き込み前の事前確認
-- `--audit-log` — 書き込み操作の JSONL 監査ログ
-- `--allowed-output-dir` — ファイル出力先ディレクトリ制限
+- `--audit-log` — 書き込み操作の JSONL 監査ログ。新規行は keyring の HMAC 鍵で鎖をつなぐ
+- `--allowed-output-dir` — ファイル出力先ディレクトリ制限。外への `docs export` は終了コード 4（`output_not_allowed`）。`--dry-run` でも同じ
 - `--confirm-*` — 破壊的操作の明示確認
-- `--approval-token` — 高リスク操作の追加承認
+- `--approval-token` — 高リスク操作の追加承認。既定の対象は `calendar.delete`、`docs.write.replace`、`docs.find_replace`、`sheets.update`、`slides.write`
+- ファイルロック — 承認トークンの消費、書き込みのレート制限、監査ログの追記は、ロックを持っているプロセスが終了するまで排他する。終了したプロセスのロックを複数が同時に取ろうとしても、取得できるのは一つ。5 秒以内に取れないとき、監査ログは終了コード 1（`audit_error`）、レート制限の更新は終了コード 1（`rate_limited`）、承認トークンの消費は終了コード 4（`approval_required`）。`error` には `acquire lock` と `timeout` が入る。この失敗では承認トークンは消費しない
+
+## 実行ポリシー（policy.json）
+
+設定ディレクトリの `policy.json`（Linux は `~/.config/gog-lite/policy.json`、macOS は `~/Library/Application Support/gog-lite/policy.json`）で実行を制限できる。ファイルが無いときはアクション制限はなく、上の既定だけが承認必須になる。
+
+- `allowed_actions`: 空ならすべて許可する。値があるときは、そのアクションだけ許可する。
+- `blocked_accounts`: 拒否するアカウント。
+- `require_approval_actions`: ここに書いたアクションを、既定の承認必須アクションに加える。
+- `exempt_approval_actions`: 既定の対象から承認を外す。`require_approval_actions` にも書いてあるアクションは承認必須のまま。
+
+承認を確認するのは `calendar delete`、`docs write --replace`、`docs find-replace`、`sheets update`、`slides write` と、`auth approval-token` の発行である。
+
+```json
+{
+  "require_approval_actions": ["gmail.draft"],
+  "exempt_approval_actions": ["slides.write"]
+}
+```
+
+この例では `auth approval-token --action gmail.draft` を発行でき、`slides write` は承認トークンなしで実行できる。`calendar.delete` など残りの既定は承認必須のまま。`slides write` の `--confirm-write` は別の確認で、オプトアウトしても残る。
 
 ## インストール
 
@@ -76,6 +99,8 @@ GitHub Actions の YAML 構文と workflow 設定を事前に確認できます�
 ./scripts/check-action-refs.sh
 ```
 
+`check-action-refs.sh` は、ワークフローの `uses:` を awk で抜き出します。`rg` は使いません。抜き出しに失敗したとき、および参照が 0 件のときは失敗します。外部アクションはフル長のコミット SHA（40 桁または 64 桁）であり、その SHA が解決できることに加え、`# v6` のようなコメントがそのコミットのタグ（`v6` または `v6.0.2`）と一致するかを確認します。
+
 `actionlint` をインストール済みの場合は、構文チェックに加えて workflow lint も実行します。
 
 ```bash
@@ -89,7 +114,7 @@ brew install actionlint
 [Google Cloud Console](https://console.cloud.google.com/) で以下を行う：
 
 1. プロジェクトを作成（または既存を使用）
-2. 必要なAPIを有効化：Gmail API / Google Calendar API / Google Docs API / Google Drive API
+2. 必要なAPIを有効化：Gmail API / Google Calendar API / Google Docs API / Google Drive API / Google Sheets API / Google Slides API
 3. 「Google Auth Platform」→「OAuth 同意画面（Audience）」でアプリ情報を入力
 4. 外部ユーザー（External）でテスト中の場合は「Test users」に利用アカウントを追加
 5. 「認証情報」→「OAuthクライアントID」を作成（種類：**デスクトップアプリ**）
@@ -112,6 +137,8 @@ security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_ID -w '<YOUR_CLIENT_
 security add-generic-password -a "$USER" -s GOG_LITE_CLIENT_SECRET -w '<YOUR_CLIENT_SECRET>' -U
 ```
 
+gog-lite が Keychain から読むときは `/usr/bin/security` を使う。PATH 上の `security` は見ない。
+
 8. Keychain 登録後は `credentials.json` を削除してよい（環境変数と Keychain を優先参照）：
 
 ```bash
@@ -130,7 +157,13 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs
 # → {"auth_url": "https://accounts.google.com/...", "next_step": "..."}
 ```
 
-ブラウザで `auth_url` を開いて認証する。リダイレクト先のURL（読み込めなくてOK）をコピーして：
+ブラウザで `auth_url` を開いて認証する。認証後、ブラウザは `http://127.0.0.1:PORT/oauth2/callback?code=...` に戻る。Linux と macOS では、ステップ 1 がそのポートを最大 10 分つかんだままにするので、URL のコピーを案内するページが開く。ページが開かない場合でも、アドレスバーの URL をコピーすればよい。Windows ではリスニングソケットを別プロセスへ渡せない。ポートは保持せず、ステップ 1 は `auth_url` を出して成功する。案内ページは開かないので、アドレスバーの URL をコピーする。
+
+ステップ 1 のコマンド自体は `auth_url` を出力して終了する。Linux と macOS では、ポートをつかみ続ける別プロセスが最大 10 分残る。認可コードの交換には、状態ファイルに保存した PKCE `code_verifier` が要る。交換が失敗したときは状態ファイルを残す。成功したときだけ消す。通信失敗のあとは、同じリダイレクト URL でステップ 2 を再実行できる。
+
+ステップ 1 を 10 分以内に再実行すると、同じスコープの状態を使い回す。Linux と macOS で使い回すのは、保存したポートで gog-lite の保持プロセスが案内ページを返しているときだけである。別のプロセスがそのポートを使っていて確かめられないときは、古い状態を捨て、新しいポート・state・verifier で `auth_url` を出し直す。Windows では保持プロセスが無い。ポートが空いているときだけ同じ状態を使い回し、別のプロセスが使っているときは捨てて新しい `auth_url` を出す。表示された URL を開く。token endpoint が失敗したときの stderr は固定文 `token endpoint request failed` と短い error コードだけ（例: `token endpoint request failed (invalid_client)`）。`code` は `auth_exchange_error`、終了コードは 1。`invalid_grant` でも同じ。`error_description`、`error_uri`、応答本文は出さない。userinfo が HTTP 200 以外のときも `code` は `auth_exchange_error`、終了コードは 1。`error` は `userinfo request failed` と HTTP ステータスコードだけ（例: `userinfo request failed (HTTP 401)`）。応答本文と `error_description` は出さない。
+
+`--services` に指定できるのは `gmail`、`calendar`、`docs`、`drive`、`sheets`、`slides`。既定は `gmail,calendar,docs`。
 
 > `エラー 403: access_denied` が出る場合は、OAuth 同意画面の Test users に該当 Gmail を追加してください。
 
@@ -141,6 +174,29 @@ gog-lite auth login --account you@gmail.com --services gmail,calendar,docs \
 # → {"stored": true, "email": "you@gmail.com", "services": [...]}
 ```
 
+### スコープを狭めたあとの再認証
+
+ログイン時に同意する OAuth スコープは、各コマンドが実際に使う範囲だけになりました。それ以前に保存した refresh token は、より広い権限（Gmail の変更・設定、Drive の全ファイルの変更など）を持ったまま残ります。同意 URL には `include_granted_scopes=true` を付けるため、同意画面を出し直すだけでは、過去に付いたスコープは外れません。
+
+次の順でやり直してください。
+
+1. ブラウザで [Google アカウントのサードパーティ アクセス](https://myaccount.google.com/permissions) を開き、この OAuth クライアント（gog-lite）のアクセス権を削除する。
+2. ローカルに保存したトークンを削除する。
+
+```bash
+gog-lite auth remove --account you@gmail.com
+```
+
+3. `--force-consent` を付けて同意を取り直す。
+
+```bash
+gog-lite auth login --account you@gmail.com --services gmail,calendar,docs --force-consent
+```
+
+4. 表示された `auth_url` をブラウザで開き、リダイレクト先の URL を `--auth-url` に渡して、上のステップ 2 を完了する。
+
+新しく保存されるトークンが持つスコープは、選んだサービスについて下の表だけです。再認証の前は、API 呼び出しが `auth_required` で失敗することがあります。失効・取り消し済みの refresh token も、token endpoint の `invalid_grant` で同じ `auth_required` になります。
+
 ## 使い方
 
 ### 認証管理
@@ -150,19 +206,50 @@ gog-lite auth list                        # 認証済みアカウント一覧
 gog-lite auth remove --account EMAIL      # アカウントのトークンを削除
 gog-lite auth preflight --account EMAIL --require-actions gmail.draft,calendar.create
 gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
-gog-lite auth emergency-revoke --account EMAIL
+gog-lite auth emergency-revoke --account EMAIL  # リモート失効を試し、ローカルでは必ずブロックする
 ```
 
-`auth approval-token` はデフォルトで stdout にフルトークンを出さず、`token_file` と `token_redacted` を返します。既存のフルトークン出力が必要な場合だけ `--reveal-token` を付けます。
+`auth approval-token` はデフォルトで stdout にフルトークンを出さず、`token_file` と `token_redacted` を返します。既存のフルトークン出力が必要な場合だけ `--reveal-token` を付けます。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
+
+`auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。
+
+Google が HTTP 200 を返すと、ローカルのトークンを削除し、policy の `blocked_accounts` にアカウントを追加する。終了コードは 0。
+
+```json
+{"revoked": true, "already_revoked": false, "blocked": true, "email": "you@gmail.com"}
+```
+
+HTTP 400 で `error` が `invalid_token` のとき（すでに無効、または失効直後の再実行）も失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
+
+通信失敗、HTTP 5xx、または `invalid_token` 以外の拒否（`invalid_client` など）のときは、終了コード 1、`code` は `remote_revoke_failed`。どの失敗でも `blocked_accounts` には追加し、refresh token は再実行用に残す。トークンを削除するのは、失効が確定したとき（HTTP 200 または `invalid_token`）だけ。`error` は「リモート失効に失敗した」で始まり、「ローカルではブロック済み」と「再実行」を含む。
+
+保存された refresh token が無いときは Google へ送らず、終了コード 3、同じ `code`。この場合も `blocked_accounts` には追加する。
+
+正規化したアドレスがすでに `blocked_accounts` にあるときは追加しない。再実行しても policy の内容は変わらない。
+
+`--dry-run` は失効リクエストを送らない。確認用 JSON と監査ログだけを返し、削除もブロックもしない。
+
+```json
+{"dry_run": true, "action": "auth.emergency_revoke", "params": {"account": "you@gmail.com"}}
+```
+
+`auth remove` はローカルのトークンを削除するだけで、Google 側は失効しない。
 
 ### Gmail
 
 ```bash
-# 未読メールを検索
+# 未読メールを検索（--max は 1 ページあたりの件数）
 gog-lite gmail search --account you@gmail.com --query "is:unread" --max 10
+
+# 続きをまとめて取る（既定 10 ページ、最大 50）。上限で止めたときは nextPageToken が残る
+gog-lite gmail search --account you@gmail.com --query "is:unread" --all-pages --max-pages 10
 
 # メール本文を取得
 gog-lite gmail get --account you@gmail.com --message-id MESSAGE_ID
+
+# 保存前に内容を確認（API は呼ばない）
+gog-lite --dry-run gmail send --account you@gmail.com \
+  --to boss@example.com --subject "週次レポート" --body "本文です"
 
 # メールを下書きとして保存（送信はしない）
 gog-lite gmail send --account you@gmail.com \
@@ -183,7 +270,7 @@ gog-lite gmail labels --account you@gmail.com
 # カレンダー一覧
 gog-lite calendar calendars --account you@gmail.com
 
-# 今週のイベントを取得
+# 今週のイベントを取得（--all-pages も --max-pages 既定 10、最大 50）
 gog-lite calendar list --account you@gmail.com \
   --from 2026-02-24T00:00:00Z --to 2026-03-02T23:59:59Z
 
@@ -211,7 +298,9 @@ gog-lite docs cat  --account you@gmail.com --doc-id DOC_ID
 # 新規作成
 gog-lite docs create --account you@gmail.com --title "新しいドキュメント"
 
-# 内容の書き込み（--replace で全置換）
+# 内容の書き込み（--replace で全置換。--dry-run では確認フラグと承認トークンは不要）
+gog-lite --dry-run docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace
+
 gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token-file /path/to/token-file
 
 # エクスポート
@@ -231,14 +320,20 @@ gog-lite sheets info --account you@gmail.com --spreadsheet-id SPREADSHEET_ID
 gog-lite sheets get --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
   --range "Sheet1!A1:C5"
 
-# セル値を更新（--dry-run で確認してから）
+# セル値を更新（既定は RAW。上書きには --confirm-write と approval-token が必要）
 gog-lite --dry-run sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
   --range "Sheet1!A1:B1" --values '[["Alice",30]]'
 
 gog-lite sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
-  --range "Sheet1!A1:B1" --values '[["Alice",30]]'
+  --range "Sheet1!A1:B1" --values '[["Alice",30]]' \
+  --confirm-write --approval-token TOKEN
 
-# 行を末尾に追加（stdin から）
+# 数式として書き込むときだけ USER_ENTERED
+gog-lite sheets update --account you@gmail.com --spreadsheet-id SPREADSHEET_ID \
+  --range "Sheet1!C1" --values '[["=SUM(A1:A3)"]]' \
+  --value-input USER_ENTERED --confirm-write --approval-token TOKEN
+
+# 行を末尾に追加（stdin から。既定は RAW）
 echo '[["Bob",25]]' | gog-lite sheets append --account you@gmail.com \
   --spreadsheet-id SPREADSHEET_ID --range Sheet1 --values-stdin
 ```
@@ -283,6 +378,35 @@ $ gog-lite gmail labels --account unknown@gmail.com
   "code": "gmail_error"
 }
 # exit code: 1
+
+# Google API が HTTP 401 を返したとき、または token endpoint が invalid_grant を返したとき
+# （トークン未保存のときも同じ）
+# → stderr: {"error":"...","code":"auth_required"}
+# exit code: 2
+# invalid_grant の error には refresh token も token endpoint の応答本文も含めない
+
+# token endpoint が invalid_grant 以外で失敗したとき（invalid_client など）
+# gmail labels のとき code は labels_error。コマンドごとに API エラーの code は違う
+# → stderr: {"error":"token endpoint request failed (invalid_client)","code":"labels_error"}
+# exit code: 1
+# error_description と応答本文は出さない。コードを取り出せないときは
+# error は "token endpoint request failed" だけ
+
+# auth login のコード交換が token endpoint で失敗したとき
+# invalid_grant でも終了コードは 1。code は auth_exchange_error のまま
+# → stderr: {"error":"token endpoint request failed (invalid_client)","code":"auth_exchange_error"}
+# exit code: 1
+# error_description、error_uri、応答本文は出さない
+
+# auth login の userinfo が HTTP 200 以外のとき
+# → stderr: {"error":"userinfo request failed (HTTP 401)","code":"auth_exchange_error"}
+# exit code: 1
+# 応答本文と error_description は出さない
+
+# Google API の HTTP 401 で、応答に message が無く本文だけがあるとき
+# → stderr: {"error":"googleapi: got HTTP response code 401","code":"auth_required"}
+# exit code: 2
+# 応答本文は出さない。パースできた message があるときは、その message を出す
 ```
 
 ## jq との組み合わせ
@@ -314,14 +438,39 @@ export GOG_LITE_KEYRING_PASSWORD=your-secure-password
 |---|---|
 | `GOG_LITE_CLIENT_ID` | OAuth クライアント ID |
 | `GOG_LITE_CLIENT_SECRET` | OAuth クライアントシークレット |
-| `GOG_LITE_KEYRING_BACKEND` | `file` でファイルバックエンドを強制 |
-| `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード |
+| `GOG_LITE_KEYRING_BACKEND` | `file` でファイルバックエンドを強制。未設定かつ Linux でセッションバスが無いときもファイルバックエンド |
+| `GOG_LITE_KEYRING_PASSWORD` | ファイルバックエンドの暗号化パスワード。空や空白だけは不可 |
 
 `GOG_LITE_CLIENT_ID` と `GOG_LITE_CLIENT_SECRET` の両方が設定されている場合、credentials.json は不要。
 macOS では上記2値を Keychain に保存しておけば、環境変数未設定でもフォールバックで参照できる。
-`GOG_LITE_KEYRING_BACKEND=file` の場合、`GOG_LITE_KEYRING_PASSWORD` は必須。
+ファイルバックエンドでは `GOG_LITE_KEYRING_PASSWORD` が必須。`GOG_LITE_KEYRING_BACKEND=file` を指定したときと、Linux でセッションバスが無くファイルバックエンドへ自動で切り替わるときの両方。未設定、空文字、空白だけは拒否する。端末へのパスワード入力は行わない。セッションバスは、`DBUS_SESSION_BUS_ADDRESS` か `/run/user/<uid>/bus` があるとあるものとして扱う。
+
+## 監査ログ
+
+書き込み系コマンドは、`--dry-run` を含めて、監査ログへ 1 行追記する。`--audit-log` を省略したときのパスは設定ディレクトリの `audit.log`。追記には keyring が必要で、失敗時の code は `audit_error`（終了コード 1）。ヘッドレスでは上の `GOG_LITE_KEYRING_BACKEND=file` と `GOG_LITE_KEYRING_PASSWORD` を設定する。Linux でセッションバスが無い場合もファイルバックエンドになる。`GOG_LITE_KEYRING_BACKEND` を省略しても `GOG_LITE_KEYRING_PASSWORD` は必要。
+
+各行は JSON で、次のフィールドを持つ。
+
+| フィールド | 意味 |
+|---|---|
+| `timestamp` | UTC の RFC3339 |
+| `action` | 操作名 |
+| `account` | アカウント。無いときは省略 |
+| `target` | 対象 ID。無いときは省略 |
+| `dry_run` | dry-run なら `true` |
+| `prev_hash` | 直前の行の `hash`。先頭行では省略 |
+| `hash_alg` | 新規行は `hmac-sha256`。それ以前の行では省略され、SHA-256 |
+| `hash` | この行のハッシュ |
+
+`hash` の材料は `timestamp|action|account|target|dry_run|prev_hash`。新規行はこの文字列の HMAC-SHA256 で、鍵は keyring の `audit-hmac-key`。同じ keyring に、ログパスごとの末尾ハッシュも残す。鍵も末尾ハッシュもログファイルには書かない。追記はファイルロックの中で読み書きする。ロックはそのプロセスが終了するまで有効である。終了したプロセスのロックを複数が同時に取ろうとしても、取得できるのは一つ。5 秒以内に取れないときは `audit_error`（終了コード 1）になる。
+
+`hash_alg` の無い既存行は SHA-256 のまま検証でき、新しい行はその末尾ハッシュを `prev_hash` にしてつながる。SHA-256 だけのファイルは、この版で最初に追記したときに末尾が keyring へ固定される。それより前にファイルだけを書き換えてチェーンを作り直した痕跡は、その初回追記では検知できない。初回追記のあと、末尾ハッシュがログの最後の行ともその 1 つ前とも一致しない追記は `audit_error` になる。末尾の更新が 1 行だけ遅れた状態は、追記の直後にプロセスが落ちたものとして次の追記で受け入れる。`audit-hmac-key` を消すと、既存の HMAC 行は検証できなくなる。
 
 ## 対応サービスと必要スコープ
+
+`auth login --services` で選んだサービスごとに、ログイン時は次のスコープへ同意します。実行時の API クライアントは、操作に応じてその一部だけを要求します。
+
+`docs export` は Drive API の `files.export` で既存のドキュメントを書き出します。`drive.file` は、このアプリが作成したファイルか、Google ピッカーで開いたファイルにしか届かないため、ドキュメント ID を指定するこのコマンドには足りません。読み取り専用の `drive.readonly` を使います。すべてのファイルを変更・削除できる `drive` スコープは要求しません。
 
 | サービス | 有効化が必要なAPI | スコープ |
 |---------|-----------------|---------|
@@ -338,6 +487,7 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 - `--dry-run` は書き込み系操作の標準確認手段です。自動化では実行前に使う前提で設計します。
 - 公開契約として安定して守るのは、stdout/stderr の JSON 形、終了コード、主要安全制御です。
 - Google API の生レスポンス詳細より、ここに記載した CLI 契約を優先して利用してください。
+- Google API の HTTP 429 は `Retry-After` を待って再試行する。秒数でも HTTP 日付でも、1 回の待ちは 30 秒まで。待ちがクライアントの残り時間（タイムアウト 30 秒）に収まらないときは待たず、再試行しない。終了コードとエラー `code` は変わらない。`rate_limited` にはしない。
 
 ## ドキュメント
 
@@ -356,7 +506,9 @@ macOS では上記2値を Keychain に保存しておけば、環境変数未設
 | ジョブ | トリガー | 内容 |
 |---|---|---|
 | `unit-fast` | PR / push | `go test ./...` + vet でユニットテストを高速実行 |
-| `integration-cli` | PR / push | 実バイナリを temp HOME で実行し、policy_denied・approval_required・preflight スキーマなどの結合挙動を検証 |
+| `staticcheck` | PR / push | `staticcheck` v0.8.1。既定のチェックで、除外はない |
+| `govulncheck` | PR / push / 毎日 02:00 UTC | 呼び出し経路上の脆弱性をスキャン |
+| `integration-cli` | PR / push | 実バイナリを temp HOME で実行し、policy_denied（Sheets / Slides を含む）・approval_required・preflight スキーマなどの結合挙動を検証 |
 | `security-nightly` | 毎日 02:00 UTC | 監査ログ改ざん検知・承認トークン再利用・stdin 上限・キーリング設定ミスの回帰テスト |
 
 失敗時は JSON エラー本文を GitHub Actions Artifacts に保存します。
