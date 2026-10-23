@@ -1,6 +1,6 @@
 module github.com/kubot64/gog-lite
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/99designs/keyring v1.2.2
