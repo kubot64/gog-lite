@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,7 +33,17 @@ func captureStderr(t *testing.T, fn func()) string {
 	}
 	orig := os.Stderr
 	os.Stderr = w
-	t.Cleanup(func() { os.Stderr = orig })
+	restoreOutputStderr := output.SetStderrForTest(w)
+	var restoreOnce sync.Once
+	restore := func() {
+		restoreOnce.Do(func() {
+			restoreOutputStderr()
+		})
+	}
+	t.Cleanup(func() {
+		os.Stderr = orig
+		restore()
+	})
 
 	fn()
 
@@ -42,6 +53,7 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatalf("read stderr: %v", err)
 	}
 	os.Stderr = orig
+	restore()
 	return string(b)
 }
 
@@ -111,8 +123,59 @@ func TestApprovalTokenCmd_Valid(t *testing.T) {
 		Action:  "calendar.delete",
 		TTL:     "10m",
 	}
-	if err := cmd.Run(context.Background(), &RootFlags{}); err != nil {
+	var err error
+	stdout := captureStdout(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	if payload["issued"] != true || payload["token_redacted"] == "" || payload["token_file"] == "" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if _, ok := payload["token"]; ok {
+		t.Fatalf("did not expect full token in default payload: %+v", payload)
+	}
+}
+
+func TestApprovalTokenCmd_RevealToken(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("GOG_LITE_CLIENT_ID", "dummy-id")
+	t.Setenv("GOG_LITE_CLIENT_SECRET", "dummy-secret")
+
+	cmd := &AuthApprovalTokenCmd{
+		Account:     "a@example.com",
+		Action:      "calendar.delete",
+		TTL:         "10m",
+		RevealToken: true,
+	}
+
+	var stdout string
+	var err error
+	stdout = captureStdout(t, func() {
+		err = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
+		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
+	}
+	token, ok := payload["token"].(string)
+	if !ok || token == "" {
+		t.Fatalf("expected token in payload: %+v", payload)
+	}
+	if payload["token_redacted"] == token {
+		t.Fatalf("expected redacted token to differ from full token: %+v", payload)
 	}
 }
 
@@ -203,8 +266,10 @@ func TestApprovalTokenCmd_DryRun(t *testing.T) {
 	}
 
 	var payload struct {
-		DryRun bool   `json:"dry_run"`
-		Action string `json:"action"`
+		DryRun                bool   `json:"dry_run"`
+		Action                string `json:"action"`
+		RequiresApprovalToken bool   `json:"requires_approval_token"`
+		WouldCallAPI          bool   `json:"would_call_api"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &payload); err != nil {
 		t.Fatalf("parse stdout JSON: %v (got %q)", err, stdout)
@@ -214,6 +279,12 @@ func TestApprovalTokenCmd_DryRun(t *testing.T) {
 	}
 	if payload.Action != "auth.approval_token" {
 		t.Fatalf("action = %q, want %q", payload.Action, "auth.approval_token")
+	}
+	if payload.RequiresApprovalToken {
+		t.Fatal("auth approval-token dry-run should not require an approval token")
+	}
+	if payload.WouldCallAPI {
+		t.Fatal("auth approval-token dry-run should not report would_call_api")
 	}
 }
 
@@ -1194,4 +1265,62 @@ func stubRevoke(t *testing.T, fn func(context.Context, string) error) {
 	orig := revokeRefreshToken
 	revokeRefreshToken = fn
 	t.Cleanup(func() { revokeRefreshToken = orig })
+}
+
+func TestEmergencyRevokeCmd_ConcurrentPolicyUpdates(t *testing.T) {
+	setupFileKeyring(t)
+	stubRevoke(t, func(context.Context, string) error { return nil })
+
+	if err := config.WritePolicy(config.PolicyFile{
+		RequireApprovalActions: []string{"calendar.delete"},
+	}); err != nil {
+		t.Fatalf("WritePolicy: %v", err)
+	}
+
+	accounts := []string{"alpha@example.com", "beta@example.com", "gamma@example.com"}
+	store := openTestStore(t)
+	for _, account := range accounts {
+		if err := store.SetToken(account, secrets.Token{RefreshToken: "dummy-refresh"}); err != nil {
+			t.Fatalf("SetToken(%q): %v", account, err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(accounts))
+	for _, account := range accounts {
+		account := account
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- (&AuthEmergencyRevokeCmd{Account: account}).Run(context.Background(), &RootFlags{})
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("AuthEmergencyRevokeCmd.Run: %v", err)
+		}
+	}
+
+	p, err := config.ReadPolicy()
+	if err != nil {
+		t.Fatalf("ReadPolicy: %v", err)
+	}
+	for _, account := range accounts {
+		found := false
+		for _, blocked := range p.BlockedAccounts {
+			if blocked == account {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing blocked account %q in %v", account, p.BlockedAccounts)
+		}
+	}
+	if len(p.RequireApprovalActions) != 1 || p.RequireApprovalActions[0] != "calendar.delete" {
+		t.Fatalf("approval actions lost or changed: %v", p.RequireApprovalActions)
+	}
 }

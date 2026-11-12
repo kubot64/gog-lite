@@ -49,7 +49,8 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "scope_error", err.Error())
 	}
 
-	creds, err := config.ReadCredentials()
+	deps := currentCommandDeps()
+	creds, err := deps.readCredentials()
 	if err != nil {
 		var credsMissing *config.CredentialsMissingError
 		if errors.As(err, &credsMissing) {
@@ -66,7 +67,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 
 	// Step 2: exchange code for token.
 	if strings.TrimSpace(c.AuthURL) != "" {
-		result, err := googleauth.Step2(ctx, creds, opts, c.AuthURL)
+		result, err := deps.authStep2(ctx, creds, opts, c.AuthURL)
 		if err != nil {
 			return output.WriteError(output.ExitCodeError, "auth_exchange_error", authExchangeErrorMessage(err))
 		}
@@ -116,7 +117,7 @@ func (c *AuthLoginCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	// Step 1: generate auth URL.
-	step1, err := googleauth.Step1(ctx, creds, opts)
+	step1, err := deps.authStep1(ctx, creds, opts)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "auth_url_error", err.Error())
 	}
@@ -252,9 +253,10 @@ func (c *AuthPreflightCmd) Run(_ context.Context, _ *RootFlags) error {
 }
 
 type AuthApprovalTokenCmd struct {
-	Account string `name:"account" required:"" short:"a" help:"Google account email."`
-	Action  string `name:"action" required:"" help:"Action ID (e.g. docs.write.replace)."`
-	TTL     string `name:"ttl" default:"10m" help:"Token TTL duration (e.g. 5m, 15m, 1h)."`
+	Account     string `name:"account" required:"" short:"a" help:"Google account email."`
+	Action      string `name:"action" required:"" help:"Action ID (e.g. docs.write.replace)."`
+	TTL         string `name:"ttl" default:"10m" help:"Token TTL duration (e.g. 5m, 15m, 1h)."`
+	RevealToken bool   `name:"reveal-token" help:"Include the full approval token in stdout JSON (less safe)."`
 }
 
 func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
@@ -295,18 +297,20 @@ func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
 
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "auth.approval_token",
-			"params": map[string]any{
-				"account": account,
-				"action":  action,
-				"ttl":     c.TTL,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("auth.approval_token", map[string]any{
+			"account": account,
+			"action":  action,
+			"ttl":     c.TTL,
+		}, dryRunPayloadOptions{WouldCallAPI: false}))
 	}
 
+	sweepIssuedApprovalTokenFiles(time.Now().UTC())
+
 	token, expiresAt, err := issueApprovalToken(account, action, ttl)
+	if err != nil {
+		return output.WriteError(output.ExitCodeError, "approval_token_error", err.Error())
+	}
+	tokenFile, err := writeIssuedApprovalTokenFile(token)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "approval_token_error", err.Error())
 	}
@@ -319,13 +323,19 @@ func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 	}
 
-	return output.WriteJSON(os.Stdout, map[string]any{
-		"issued":     true,
-		"account":    account,
-		"action":     action,
-		"token":      token,
-		"expires_at": expiresAt,
-	})
+	payload := map[string]any{
+		"issued":         true,
+		"account":        account,
+		"action":         action,
+		"token_redacted": redactApprovalToken(token),
+		"token_file":     tokenFile,
+		"expires_at":     expiresAt,
+	}
+	if c.RevealToken {
+		payload["token"] = token
+	}
+
+	return output.WriteJSON(os.Stdout, payload)
 }
 
 type AuthEmergencyRevokeCmd struct {
@@ -432,8 +442,10 @@ func blockAccount(account string) error {
 			return nil
 		}
 	}
-	p.BlockedAccounts = append(p.BlockedAccounts, account)
-	if err := config.WritePolicy(p); err != nil {
+	if err := config.UpdatePolicy(func(p *config.PolicyFile) error {
+		p.BlockedAccounts = append(p.BlockedAccounts, account)
+		return nil
+	}); err != nil {
 		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
 	}
 	return nil

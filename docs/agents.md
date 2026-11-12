@@ -191,7 +191,7 @@ gog-lite auth login  --account EMAIL [--services gmail,calendar,docs] [--auth-ur
 gog-lite auth list
 gog-lite auth remove --account EMAIL
 gog-lite auth preflight --account EMAIL [--require-actions gmail.draft,calendar.create]
-gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m]
+gog-lite auth approval-token --account EMAIL --action ACTION [--ttl 10m] [--reveal-token]
 gog-lite auth emergency-revoke --account EMAIL
 gog-lite --version
 gog-lite --help
@@ -200,7 +200,9 @@ gog-lite --help
 - `auth approval-token` は `ACTION` が policy で許可され、かつ承認必須（既定に `require_approval_actions` を足し、`exempt_approval_actions` で外した既定を除いた集合。両方にあるときは承認必須）である場合のみ発行される。
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
-- 発行された `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
+- `auth approval-token` はデフォルトで `token_file` と `token_redacted` を返し、フルトークンは stdout に出さない。互換目的でフルトークンが必要な場合のみ `--reveal-token` を使う。
+- `token_file` は設定ディレクトリの `approvals/issued/<SHA-256>.token`（権限 0600）に置かれる。トークンの使用に成功すると、`--approval-token` と `--approval-token-file` のどちらで渡した場合もこのファイルは削除される。使用済み・期限切れ・状態ファイルのないトークンのファイルは、次に `auth approval-token` を実行したときに削除される。`approvals/issued/` の外にあるファイルは削除しない。
+- 新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
 - `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
 - HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。
 - HTTP 400 かつ本文の `error` が `invalid_token` のときは、すでに失効済みとして同じ削除とブロックに進む。終了コードは 0。`already_revoked` は `true`。
@@ -394,7 +396,7 @@ gog-lite calendar update --account EMAIL --event-id ID \
 #### delete
 
 ```bash
-gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] --confirm-delete [--approval-token TOKEN]
+gog-lite calendar delete --account EMAIL --event-id ID [--calendar-id primary] --confirm-delete [--approval-token TOKEN] [--approval-token-file PATH]
 ```
 
 ```json
@@ -460,7 +462,7 @@ gog-lite docs export --account EMAIL --doc-id DOC_ID --format pdf|docx|txt|odt|h
 ```bash
 gog-lite --dry-run docs write --account EMAIL --doc-id DOC_ID --content "新しい内容" --replace
 
-gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace --approval-token TOKEN]
+gog-lite docs write --account EMAIL --doc-id DOC_ID [--content TEXT] [--content-stdin] [--replace --confirm-replace --approval-token TOKEN] [--approval-token-file PATH]
 
 cat report.txt | gog-lite docs write --account EMAIL --doc-id DOC_ID --content-stdin --replace --confirm-replace --approval-token TOKEN
 ```
@@ -484,7 +486,7 @@ dry-run の出力：
 #### find-replace
 
 ```bash
-gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] --confirm-find-replace [--approval-token TOKEN]
+gog-lite docs find-replace --account EMAIL --doc-id DOC_ID --find TEXT --replace TEXT [--match-case] --confirm-find-replace [--approval-token TOKEN] [--approval-token-file PATH]
 ```
 
 ```json
@@ -663,7 +665,7 @@ page-id 指定時の出力：
 
 ```bash
 gog-lite slides write --account EMAIL --presentation-id PRESENTATION_ID \
-  --find "{{NAME}}" --replace "Alice" --confirm-write [--approval-token TOKEN]
+  --find "{{NAME}}" --replace "Alice" --confirm-write [--approval-token TOKEN] [--approval-token-file PATH]
 
 # dry-run で確認
 gog-lite --dry-run slides write --account EMAIL --presentation-id PRESENTATION_ID \
