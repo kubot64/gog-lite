@@ -40,6 +40,7 @@ func TestAuthApprovalTokenDryRun_JSONContract(t *testing.T) {
 }
 
 func TestGmailGet_JSONContract(t *testing.T) {
+	isolateTestConfig(t)
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
 			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +72,7 @@ func TestGmailGet_JSONContract(t *testing.T) {
 }
 
 func TestGmailThread_JSONContract(t *testing.T) {
+	isolateTestConfig(t)
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
 			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +104,7 @@ func TestGmailThread_JSONContract(t *testing.T) {
 }
 
 func TestGmailSend_JSONContract(t *testing.T) {
+	isolateTestConfig(t)
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newGmailWriteService = func(ctx context.Context, _ string) (*gmail.Service, error) {
 			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +174,7 @@ func TestApprovalTokenInvalidTTL_JSONContract(t *testing.T) {
 }
 
 func TestCalendarDeleteMissingConfirmation_JSONContract(t *testing.T) {
+	isolateTestConfig(t)
 	cmd := &CalendarDeleteCmd{
 		Account:    "a@example.com",
 		CalendarID: "primary",

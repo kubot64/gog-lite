@@ -20,6 +20,17 @@ import (
 	"github.com/kubot64/gog-lite/internal/secrets"
 )
 
+// isolateTestConfig points the config dir and keyring at a per-test temp dir
+// so tests never read or write the developer's real gog-lite config.
+func isolateTestConfig(t *testing.T) {
+	t.Helper()
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("GOG_LITE_KEYRING_BACKEND", "file")
+	t.Setenv("GOG_LITE_KEYRING_PASSWORD", "test-password")
+}
+
 func TestAuthLoginCmd_TwoStepHappyPath(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("HOME", cfgHome)
@@ -131,6 +142,7 @@ func TestAuthLoginCmd_TwoStepHappyPath(t *testing.T) {
 }
 
 func TestGmailSendCmd_HappyPath(t *testing.T) {
+	isolateTestConfig(t)
 	var gotRaw string
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newGmailWriteService = func(ctx context.Context, _ string) (*gmail.Service, error) {
@@ -210,6 +222,7 @@ func TestGmailSendCmd_HappyPath(t *testing.T) {
 }
 
 func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
+	isolateTestConfig(t)
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newGmailReadOnlyService = func(ctx context.Context, _ string) (*gmail.Service, error) {
 			return newTestGmailService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
@@ -255,6 +268,7 @@ func TestGmailGetCmd_HappyPathAddsMetadata(t *testing.T) {
 }
 
 func TestCalendarCreateCmd_HappyPath(t *testing.T) {
+	isolateTestConfig(t)
 	var reqBody []byte
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newCalendarWriteService = func(ctx context.Context, _ string) (*calendar.Service, error) {
@@ -324,6 +338,7 @@ func TestCalendarCreateCmd_HappyPath(t *testing.T) {
 }
 
 func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
+	isolateTestConfig(t)
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newCalendarReadOnlyService = func(ctx context.Context, _ string) (*calendar.Service, error) {
 			return newTestCalendarService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
@@ -369,6 +384,7 @@ func TestCalendarGetCmd_HappyPathAddsMetadata(t *testing.T) {
 }
 
 func TestDocsWriteCmd_HappyPath(t *testing.T) {
+	isolateTestConfig(t)
 	var reqBody []byte
 	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
 		d.newDocsWriteService = func(ctx context.Context, _ string) (*docs.Service, error) {
