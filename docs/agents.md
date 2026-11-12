@@ -201,6 +201,7 @@ gog-lite --help
 - `auth approval-token` の実行自体も `allowed_actions` の対象（`auth.approval_token`）。`allowed_actions` を設定している環境では明示的に追加が必要。
 - `auth approval-token` は `--dry-run` に対応し、実トークンを発行せず検証できる。
 - `auth approval-token` はデフォルトで `token_file` と `token_redacted` を返し、フルトークンは stdout に出さない。互換目的でフルトークンが必要な場合のみ `--reveal-token` を使う。
+- `token_file` は設定ディレクトリの `approvals/issued/<SHA-256>.token`（権限 0600）に置かれる。トークンの使用に成功すると、`--approval-token` と `--approval-token-file` のどちらで渡した場合もこのファイルは削除される。使用済み・期限切れ・状態ファイルのないトークンのファイルは、次に `auth approval-token` を実行したときに削除される。`approvals/issued/` の外にあるファイルは削除しない。
 - 新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
 - `auth emergency-revoke` は、ローカル削除の前に refresh token を `POST https://oauth2.googleapis.com/revoke`（`application/x-www-form-urlencoded` の `token`）へ送る。
 - HTTP 200 のときはローカルトークンを削除し、policy の `blocked_accounts` にアカウントを加える。終了コードは 0。`already_revoked` は `false`。

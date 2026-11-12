@@ -139,6 +139,8 @@ func consumeApprovalToken(account, action, token string) error {
 			return fmt.Errorf("mark approval token used: %w", err)
 		}
 
+		removeIssuedApprovalTokenFile(token)
+
 		return nil
 	})
 }
@@ -220,13 +222,99 @@ func approvalTokenIssuedDir() (string, error) {
 	return issuedDir, nil
 }
 
+// issuedApprovalTokenFilename uses the same hash as the state file, so cleanup
+// can find a token's issued file without trusting a user-supplied path.
+func issuedApprovalTokenFilename(token string) string {
+	return strings.TrimSuffix(approvalTokenFilename(token), ".json") + issuedApprovalTokenExt
+}
+
+const issuedApprovalTokenExt = ".token"
+
+// removeIssuedApprovalTokenFile deletes the issued file for token, if any.
+// It is best-effort: a used token cannot be replayed even if the file stays.
+func removeIssuedApprovalTokenFile(token string) {
+	dir, err := approvalTokenIssuedDir()
+	if err != nil {
+		return
+	}
+
+	path := filepath.Join(dir, issuedApprovalTokenFilename(token))
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return
+	}
+
+	_ = os.Remove(path)
+}
+
+// sweepIssuedApprovalTokenFiles deletes issued files whose token is used,
+// expired, or has no state. Files it did not create are left alone.
+func sweepIssuedApprovalTokenFiles(now time.Time) {
+	dir, err := approvalTokenIssuedDir()
+	if err != nil {
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		hash, ok := strings.CutSuffix(name, issuedApprovalTokenExt)
+		if !ok || !entry.Type().IsRegular() || !isSHA256Hex(hash) {
+			continue
+		}
+
+		if !issuedApprovalTokenStale(filepath.Join(filepath.Dir(dir), hash+".json"), now) {
+			continue
+		}
+
+		_ = os.Remove(filepath.Join(dir, name))
+	}
+}
+
+func issuedApprovalTokenStale(statePath string, now time.Time) bool {
+	b, err := os.ReadFile(statePath) //nolint:gosec
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+
+	var st approvalTokenState
+	if err := json.Unmarshal(b, &st); err != nil {
+		return false
+	}
+	if st.Used {
+		return true
+	}
+
+	exp, err := time.Parse(time.RFC3339, st.ExpiresAt)
+
+	return err == nil && now.After(exp)
+}
+
+func isSHA256Hex(s string) bool {
+	if len(s) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+
+	return err == nil && strings.ToLower(s) == s
+}
+
 func writeIssuedApprovalTokenFile(token string) (string, error) {
 	dir, err := approvalTokenIssuedDir()
 	if err != nil {
 		return "", err
 	}
 
-	tmp, err := os.CreateTemp(dir, "token-*")
+	finalPath := filepath.Join(dir, issuedApprovalTokenFilename(token))
+	if err := rejectApprovalTokenSymlink(finalPath); err != nil {
+		return "", err
+	}
+
+	tmp, err := os.CreateTemp(dir, ".token-*")
 	if err != nil {
 		return "", fmt.Errorf("create issued approval token file: %w", err)
 	}
@@ -252,10 +340,13 @@ func writeIssuedApprovalTokenFile(token string) (string, error) {
 	if err := tmp.Close(); err != nil {
 		return "", fmt.Errorf("close issued approval token file: %w", err)
 	}
+	if err := os.Rename(path, finalPath); err != nil {
+		return "", fmt.Errorf("rename issued approval token file: %w", err)
+	}
 
 	cleanup = false
 
-	return path, nil
+	return finalPath, nil
 }
 
 func randomToken() (string, error) {

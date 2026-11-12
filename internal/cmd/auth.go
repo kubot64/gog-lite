@@ -304,6 +304,8 @@ func (c *AuthApprovalTokenCmd) Run(_ context.Context, root *RootFlags) error {
 		}, dryRunPayloadOptions{WouldCallAPI: false}))
 	}
 
+	sweepIssuedApprovalTokenFiles(time.Now().UTC())
+
 	token, expiresAt, err := issueApprovalToken(account, action, ttl)
 	if err != nil {
 		return output.WriteError(output.ExitCodeError, "approval_token_error", err.Error())
