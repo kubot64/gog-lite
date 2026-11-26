@@ -5,7 +5,7 @@ go 1.26.11
 require (
 	github.com/99designs/keyring v1.2.2
 	github.com/alecthomas/kong v1.16.1
-	golang.org/x/oauth2 v0.37.0
+	golang.org/x/oauth2 v0.38.0
 	google.golang.org/api v0.301.0
 )
 
