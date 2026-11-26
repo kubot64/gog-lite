@@ -146,7 +146,9 @@ func writeJSON(w io.Writer, val any, extras map[string]any) error {
 }
 
 func augmentSuccessPayload(payload map[string]any) map[string]any {
-	out := make(map[string]any, len(payload)+6)
+	// Extra keys grow the map. Adding a constant to len is an
+	// allocation-size overflow for CodeQL.
+	out := make(map[string]any, len(payload))
 	for k, v := range payload {
 		out[k] = v
 	}
