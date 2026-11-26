@@ -139,13 +139,14 @@ func extractPageTexts(elements []*slides.PageElement) []string {
 
 // SlidesWriteCmd replaces text in a presentation.
 type SlidesWriteCmd struct {
-	Account        string `name:"account" required:"" short:"a" help:"Google account email."`
-	PresentationID string `name:"presentation-id" required:"" help:"Google Slides presentation ID."`
-	Find           string `name:"find" required:"" help:"Text to find."`
-	Replace        string `name:"replace" required:"" help:"Replacement text."`
-	MatchCase      bool   `name:"match-case" help:"Case-sensitive matching (default: false)."`
-	ConfirmWrite   bool   `name:"confirm-write" help:"Required confirmation flag for write operations."`
-	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
+	Account           string `name:"account" required:"" short:"a" help:"Google account email."`
+	PresentationID    string `name:"presentation-id" required:"" help:"Google Slides presentation ID."`
+	Find              string `name:"find" required:"" help:"Text to find."`
+	Replace           string `name:"replace" required:"" help:"Replacement text."`
+	MatchCase         bool   `name:"match-case" help:"Case-sensitive matching (default: false)."`
+	ConfirmWrite      bool   `name:"confirm-write" help:"Required confirmation flag for write operations."`
+	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
+	ApprovalTokenFile string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
 func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -159,6 +160,10 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	if root.DryRun {
+		required, err := actionRequiresApproval("slides.write")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "slides.write",
 			Account: normalizeEmail(c.Account),
@@ -167,17 +172,17 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "slides.write",
-			"params": map[string]any{
-				"account":         c.Account,
-				"presentation_id": c.PresentationID,
-				"find":            c.Find,
-				"replace":         c.Replace,
-				"match_case":      c.MatchCase,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("slides.write", map[string]any{
+			"account":         c.Account,
+			"presentation_id": c.PresentationID,
+			"find":            c.Find,
+			"replace":         c.Replace,
+			"match_case":      c.MatchCase,
+		}, dryRunPayloadOptions{
+			RequiresConfirmation:  true,
+			RequiresApprovalToken: required,
+			WouldCallAPI:          true,
+		}))
 	}
 
 	if err := enforceWriteRateLimit("slides.write"); err != nil {
@@ -189,7 +194,11 @@ func (c *SlidesWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
 	}
 	if required {
-		if err := consumeApprovalToken(c.Account, "slides.write", c.ApprovalToken); err != nil {
+		token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+		if err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+		if err := consumeApprovalToken(c.Account, "slides.write", token); err != nil {
 			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
 		}
 	}

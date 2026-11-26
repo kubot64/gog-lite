@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -132,22 +133,18 @@ func (c *DocsCreateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "docs.create",
-			"params": map[string]any{
-				"account":        c.Account,
-				"title":          c.Title,
-				"content_length": len(content),
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("docs.create", map[string]any{
+			"account":        c.Account,
+			"title":          c.Title,
+			"content_length": len(content),
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	if err := enforceWriteRateLimit("docs.create"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
+	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -224,6 +221,9 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	dryRun := root.DryRun
+	if err := rejectOutputPathSymlinks(c.Output); err != nil {
+		return output.WriteError(output.ExitCodeError, "output_not_allowed", err.Error())
+	}
 	if dryRun {
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "docs.export",
@@ -233,24 +233,20 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "docs.export",
-			"params": map[string]any{
-				"account":   c.Account,
-				"doc_id":    c.DocID,
-				"format":    c.Format,
-				"output":    c.Output,
-				"overwrite": c.Overwrite,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("docs.export", map[string]any{
+			"account":   c.Account,
+			"doc_id":    c.DocID,
+			"format":    c.Format,
+			"output":    c.Output,
+			"overwrite": c.Overwrite,
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	if err := enforceWriteRateLimit("docs.export"); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	driveSvc, err := googleapi.NewDriveReadOnly(ctx, c.Account)
+	driveSvc, err := currentCommandDeps().newDriveReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -286,13 +282,14 @@ func (c *DocsExportCmd) Run(ctx context.Context, root *RootFlags) error {
 
 // DocsWriteCmd writes content to a document.
 type DocsWriteCmd struct {
-	Account        string `name:"account" required:"" short:"a" help:"Google account email."`
-	DocID          string `name:"doc-id" required:"" help:"Google Docs document ID."`
-	Content        string `name:"content" help:"Content to write."`
-	ContentStdin   bool   `name:"content-stdin" help:"Read content from stdin."`
-	Replace        bool   `name:"replace" help:"Replace all existing content."`
-	ConfirmReplace bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
-	ApprovalToken  string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
+	Account           string `name:"account" required:"" short:"a" help:"Google account email."`
+	DocID             string `name:"doc-id" required:"" help:"Google Docs document ID."`
+	Content           string `name:"content" help:"Content to write."`
+	ContentStdin      bool   `name:"content-stdin" help:"Read content from stdin."`
+	Replace           bool   `name:"replace" help:"Replace all existing content."`
+	ConfirmReplace    bool   `name:"confirm-replace" help:"Required confirmation flag when using --replace."`
+	ApprovalToken     string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
+	ApprovalTokenFile string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
 func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -326,17 +323,25 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "docs.write",
-			"params": map[string]any{
-				"account":         c.Account,
-				"doc_id":          c.DocID,
-				"content_length":  len(content),
-				"replace":         c.Replace,
-				"confirm_replace": c.ConfirmReplace,
-			},
-		})
+		required := false
+		if c.Replace {
+			approvalRequired, err := actionRequiresApproval("docs.write.replace")
+			if err != nil {
+				return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+			}
+			required = approvalRequired
+		}
+		return output.WriteJSON(os.Stdout, newDryRunPayload("docs.write", map[string]any{
+			"account":         c.Account,
+			"doc_id":          c.DocID,
+			"content_length":  len(content),
+			"replace":         c.Replace,
+			"confirm_replace": c.ConfirmReplace,
+		}, dryRunPayloadOptions{
+			RequiresConfirmation:  c.Replace,
+			RequiresApprovalToken: required,
+			WouldCallAPI:          true,
+		}))
 	}
 
 	if err := enforceWriteRateLimit("docs.write"); err != nil {
@@ -349,13 +354,17 @@ func (c *DocsWriteCmd) Run(ctx context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
 		}
 		if required {
-			if err := consumeApprovalToken(c.Account, "docs.write.replace", c.ApprovalToken); err != nil {
+			token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+			if err != nil {
+				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+			}
+			if err := consumeApprovalToken(c.Account, "docs.write.replace", token); err != nil {
 				return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
 			}
 		}
 	}
 
-	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
+	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -430,6 +439,7 @@ type DocsFindReplaceCmd struct {
 	MatchCase          bool   `name:"match-case" help:"Case-sensitive matching."`
 	ConfirmFindReplace bool   `name:"confirm-find-replace" help:"Required confirmation flag for find-replace operations."`
 	ApprovalToken      string `name:"approval-token" help:"One-time approval token for dangerous actions. Newly issued tokens do not start with '-'."`
+	ApprovalTokenFile  string `name:"approval-token-file" help:"Path to a file containing the approval token."`
 }
 
 func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
@@ -443,6 +453,10 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 	}
 
 	if dryRun {
+		required, err := actionRequiresApproval("docs.find_replace")
+		if err != nil {
+			return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
+		}
 		if err := appendAuditLog(root.AuditLog, auditEntry{
 			Action:  "docs.find_replace",
 			Account: normalizeEmail(c.Account),
@@ -451,17 +465,17 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "docs.find_replace",
-			"params": map[string]any{
-				"account":    c.Account,
-				"doc_id":     c.DocID,
-				"find":       c.Find,
-				"replace":    c.Replace,
-				"match_case": c.MatchCase,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("docs.find_replace", map[string]any{
+			"account":    c.Account,
+			"doc_id":     c.DocID,
+			"find":       c.Find,
+			"replace":    c.Replace,
+			"match_case": c.MatchCase,
+		}, dryRunPayloadOptions{
+			RequiresConfirmation:  true,
+			RequiresApprovalToken: required,
+			WouldCallAPI:          true,
+		}))
 	}
 
 	if err := enforceWriteRateLimit("docs.find_replace"); err != nil {
@@ -473,12 +487,16 @@ func (c *DocsFindReplaceCmd) Run(ctx context.Context, root *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "policy_error", err.Error())
 	}
 	if required {
-		if err := consumeApprovalToken(c.Account, "docs.find_replace", c.ApprovalToken); err != nil {
+		token, err := resolveApprovalTokenInput(c.ApprovalToken, c.ApprovalTokenFile)
+		if err != nil {
+			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
+		}
+		if err := consumeApprovalToken(c.Account, "docs.find_replace", token); err != nil {
 			return output.WriteError(output.ExitCodePermission, "approval_required", err.Error())
 		}
 	}
 
-	docSvc, err := googleapi.NewDocsWrite(ctx, c.Account)
+	docSvc, err := currentCommandDeps().newDocsWriteService(ctx, c.Account)
 	if err != nil {
 		return docsAuthError(err)
 	}
@@ -562,6 +580,9 @@ func writeFileAtomically(outputPath string, src io.Reader, overwrite bool) (int6
 	if strings.TrimSpace(outputPath) == "" {
 		return 0, fmt.Errorf("output path is empty")
 	}
+	if err := rejectOutputPathSymlinks(outputPath); err != nil {
+		return 0, err
+	}
 
 	if !overwrite {
 		if _, err := os.Stat(outputPath); err == nil {
@@ -621,6 +642,44 @@ func writeFileAtomically(outputPath string, src io.Reader, overwrite bool) (int6
 	cleanupTmp = false
 
 	return written, nil
+}
+
+func rejectOutputPathSymlinks(outputPath string) error {
+	absPath, err := filepath.Abs(outputPath)
+	if err != nil {
+		return fmt.Errorf("resolve output path: %w", err)
+	}
+
+	current := absPath
+	for {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				if runtime.GOOS == "darwin" && isDarwinSystemPathAlias(current) {
+					// macOS exposes common roots like /var as symlinks to /private/var.
+				} else {
+					return fmt.Errorf("output path must not use symlinks")
+				}
+			}
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat output path: %w", err)
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
+	}
+}
+
+func isDarwinSystemPathAlias(path string) bool {
+	switch filepath.Clean(path) {
+	case "/var", "/tmp", "/etc":
+		return true
+	default:
+		return false
+	}
 }
 
 func ensureWithinAllowedOutputDir(outputPath, allowedDir string) error {
