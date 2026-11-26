@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,8 @@ import (
 	"time"
 
 	"google.golang.org/api/docs/v1"
+	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/option"
 
 	"github.com/kubot64/gog-lite/internal/output"
 )
@@ -234,6 +238,266 @@ func TestEnsureWithinAllowedOutputDir_RejectsSymlinkEscape(t *testing.T) {
 	if err := ensureWithinAllowedOutputDir(escapedPath, base); err == nil {
 		t.Fatal("expected symlink escape path to be rejected")
 	}
+}
+
+func TestWriteFileAtomically_RejectsFinalTargetSymlink(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "outside.txt")
+	if err := os.WriteFile(target, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("seed outside file: %v", err)
+	}
+
+	outputPath := filepath.Join(base, "export.txt")
+	if err := os.Symlink(target, outputPath); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	if _, err := writeFileAtomically(outputPath, bytes.NewBufferString("new-value"), true); err == nil {
+		t.Fatal("expected symlinked output path to be rejected")
+	}
+
+	info, err := os.Lstat(outputPath)
+	if err != nil {
+		t.Fatalf("lstat output: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlinked output path to remain a symlink")
+	}
+
+	outsideGot, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read outside file: %v", err)
+	}
+	if string(outsideGot) != "outside" {
+		t.Fatalf("outside file changed: %q", string(outsideGot))
+	}
+}
+
+func TestWriteFileAtomically_RejectsParentSymlinkWhenUnrestricted(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	linkDir := filepath.Join(base, "escape")
+	if err := os.Symlink(outside, linkDir); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	outputPath := filepath.Join(linkDir, "export.txt")
+	if _, err := writeFileAtomically(outputPath, bytes.NewBufferString("escaped"), true); err == nil {
+		t.Fatal("expected parent symlink to be rejected")
+	}
+
+	outsidePath := filepath.Join(outside, "export.txt")
+	if _, err := os.Stat(outsidePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no escaped output, got err=%v", err)
+	}
+}
+
+func TestDocsExportCmd_AllowedOutputDirRejectsFinalTargetSymlinkEscape(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	base := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "escaped.pdf")
+	outputPath := filepath.Join(base, "export.pdf")
+	if err := os.Symlink(target, outputPath); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	cmd := &DocsExportCmd{
+		Account: "a@example.com",
+		DocID:   "doc-123",
+		Format:  "pdf",
+		Output:  outputPath,
+	}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{AllowedOutputDir: base})
+	})
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "output_not_allowed" {
+		t.Fatalf("code = %q, want %q", payload.Code, "output_not_allowed")
+	}
+}
+
+func TestDocsExportCmd_AllowedOutputDirRejectsParentSymlinkEscape(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	base := t.TempDir()
+	outside := t.TempDir()
+	linkDir := filepath.Join(base, "escape")
+	if err := os.Symlink(outside, linkDir); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	cmd := &DocsExportCmd{
+		Account: "a@example.com",
+		DocID:   "doc-123",
+		Format:  "pdf",
+		Output:  filepath.Join(linkDir, "export.pdf"),
+	}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{AllowedOutputDir: base})
+	})
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "output_not_allowed" {
+		t.Fatalf("code = %q, want %q", payload.Code, "output_not_allowed")
+	}
+}
+
+func TestDocsExportCmd_UnrestrictedFinalTargetSymlinkRejected(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	base := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "escaped.pdf")
+	if err := os.WriteFile(target, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("seed outside file: %v", err)
+	}
+	outputPath := filepath.Join(base, "export.pdf")
+	if err := os.Symlink(target, outputPath); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newDriveReadOnlyService = func(ctx context.Context, _ string) (*drive.Service, error) {
+			return newTestDriveService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Fatalf("method = %s, want GET", r.Method)
+				}
+				if r.URL.Path != "/drive/v3/files/doc-123/export" {
+					t.Fatalf("path = %q", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/pdf")
+				_, _ = w.Write([]byte("pdf-data"))
+			})
+		}
+	})
+	t.Cleanup(restoreDeps)
+
+	cmd := &DocsExportCmd{
+		Account:   "a@example.com",
+		DocID:     "doc-123",
+		Format:    "pdf",
+		Output:    outputPath,
+		Overwrite: true,
+	}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "output_not_allowed" {
+		t.Fatalf("code = %q, want %q", payload.Code, "output_not_allowed")
+	}
+
+	outsideGot, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read outside file: %v", err)
+	}
+	if string(outsideGot) != "outside" {
+		t.Fatalf("outside file changed: %q", string(outsideGot))
+	}
+}
+
+func TestDocsExportCmd_UnrestrictedParentSymlinkRejected(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("HOME", cfgHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	base := t.TempDir()
+	outside := t.TempDir()
+	linkDir := filepath.Join(base, "escape")
+	if err := os.Symlink(outside, linkDir); err != nil {
+		t.Skipf("symlink not supported on this environment: %v", err)
+	}
+
+	restoreDeps := setCommandDepsForTest(func(d *commandDeps) {
+		d.newDriveReadOnlyService = func(ctx context.Context, _ string) (*drive.Service, error) {
+			return newTestDriveService(ctx, t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/pdf")
+				_, _ = w.Write([]byte("pdf-data"))
+			})
+		}
+	})
+	t.Cleanup(restoreDeps)
+
+	outputPath := filepath.Join(linkDir, "export.pdf")
+	cmd := &DocsExportCmd{
+		Account:   "a@example.com",
+		DocID:     "doc-123",
+		Format:    "pdf",
+		Output:    outputPath,
+		Overwrite: true,
+	}
+	var runErr error
+	stderr := captureStderr(t, func() {
+		runErr = cmd.Run(context.Background(), &RootFlags{})
+	})
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &payload); err != nil {
+		t.Fatalf("parse stderr JSON: %v (got %q)", err, stderr)
+	}
+	if payload.Code != "output_not_allowed" {
+		t.Fatalf("code = %q, want %q", payload.Code, "output_not_allowed")
+	}
+
+	outsidePath := filepath.Join(outside, "export.pdf")
+	if _, err := os.Stat(outsidePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no escaped output, got err=%v", err)
+	}
+}
+
+func newTestDriveService(ctx context.Context, t *testing.T, handler http.HandlerFunc) (*drive.Service, error) {
+	t.Helper()
+	server := httptest.NewTLSServer(handler)
+	t.Cleanup(server.Close)
+
+	return drive.NewService(ctx,
+		option.WithHTTPClient(server.Client()),
+		option.WithEndpoint(server.URL+"/drive/v3/"),
+		option.WithoutAuthentication(),
+	)
 }
 
 func TestDocsWriteReplaceRequiresConfirmation(t *testing.T) {

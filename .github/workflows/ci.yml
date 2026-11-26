@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - run: go build ./...
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Run staticcheck
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Scan reachable vulnerabilities
@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Build CLI binary
@@ -304,8 +304,11 @@ jobs:
           export GOG_LITE_CLIENT_SECRET=dummy-secret
           export GOG_LITE_KEYRING_BACKEND=file
           export GOG_LITE_KEYRING_PASSWORD=ci-test-password
-          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
-            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          issued_path=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token_file'])")
+          [ -s "$issued_path" ] || { echo "issued approval token file was not written"; exit 1; }
+          token=$(tr -d '[:space:]' < "$issued_path")
+          [ -n "$token" ] || { echo "approval token was empty"; exit 1; }
           token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
           token_file="$XDG_CONFIG_HOME/gog-lite/approvals/${token_hash}.json"
           [ ! -e "$XDG_CONFIG_HOME/gog-lite/approvals/${token}.json" ] || { echo "approval token filename is the token"; exit 1; }
@@ -361,8 +364,10 @@ jobs:
           export GOG_LITE_CLIENT_SECRET=dummy-secret
           export GOG_LITE_KEYRING_BACKEND=file
           export GOG_LITE_KEYRING_PASSWORD=ci-test-password
-          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
-            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          issued_path=$(/tmp/gog-lite auth approval-token --account test@example.com --action calendar.delete --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token_file'])")
+          [ -s "$issued_path" ] || { echo "issued approval token file was not written"; exit 1; }
+          token=$(tr -d '[:space:]' < "$issued_path")
           [ -n "$token" ] || { echo "approval token was empty"; exit 1; }
           case "$token" in
             -*) echo "issued approval token starts with a hyphen"; exit 1 ;;
@@ -531,8 +536,11 @@ jobs:
           assert params.get('content_length') == 5, d
           print('docs-write-replace-dry-run: OK')
           " "$out"
-          token=$(/tmp/gog-lite auth approval-token --account test@example.com --action docs.write.replace --ttl 10m \
-            | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+          issued_path=$(/tmp/gog-lite auth approval-token --account test@example.com --action docs.write.replace --ttl 10m \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['token_file'])")
+          [ -s "$issued_path" ] || { echo "issued approval token file was not written"; exit 1; }
+          token=$(tr -d '[:space:]' < "$issued_path")
+          [ -n "$token" ] || { echo "approval token was empty"; exit 1; }
           /tmp/gog-lite --dry-run docs write --account test@example.com --doc-id x --content hello --replace \
             --confirm-replace --approval-token="$token" >/dev/null || {
             echo "dry-run with approval token failed"
@@ -938,7 +946,9 @@ jobs:
           python3 -c "
           import json
           d = json.load(open('$out_json'))
-          assert d.get('token'), d
+          assert 'token' not in d, d
+          assert d.get('token_file'), d
+          assert d.get('token_redacted'), d
           assert d.get('action') == 'gmail.draft', d
           print('approval-added-action: OK')
           "
@@ -1264,7 +1274,10 @@ jobs:
           echo "issue token stderr:"
           cat "$err_json"
           [ ! -s "$err_json" ]
-          token=$(python3 -c "import json; print(json.load(open('$out_json'))['token'])")
+          issued_path=$(python3 -c "import json; print(json.load(open('$out_json'))['token_file'])")
+          [ -s "$issued_path" ] || { echo "issued approval token file was not written"; exit 1; }
+          token=$(tr -d '[:space:]' < "$issued_path")
+          [ -n "$token" ] || { echo "approval token was empty"; exit 1; }
           token_hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
           token_path="$HOME/gog-lite/approvals/${token_hash}.json"
           token_lock="${token_path}.lock"
@@ -1510,7 +1523,7 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Run security regression tests

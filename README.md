@@ -209,7 +209,7 @@ gog-lite auth approval-token --account EMAIL --action calendar.delete --ttl 10m
 gog-lite auth emergency-revoke --account EMAIL  # リモート失効を試し、ローカルでは必ずブロックする
 ```
 
-`auth approval-token` の `token` は stdout の JSON に入る。次のコマンドの `--approval-token` に渡す。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
+`auth approval-token` はデフォルトで stdout にフルトークンを出さず、`token_file` と `token_redacted` を返します。既存のフルトークン出力が必要な場合だけ `--reveal-token` を付けます。新しく発行するトークンは `-` で始まらないので、`--approval-token TOKEN` と空白区切りで渡せる。保存ファイル名はトークン文字列の SHA-256（16進）で、ディレクトリ一覧にはトークンそのものを出さない。この版より前に発行した未使用トークンのうち、ファイル名がトークン文字列そのもののものは使えません。発行し直してください。ファイル名が SHA-256 で、トークンが `-` で始まる未使用トークンは有効です。そのときは `--approval-token=TOKEN` の形で渡してください。
 
 `auth emergency-revoke` は、ローカルのトークンを消す前に refresh token を `https://oauth2.googleapis.com/revoke` へ POST する。
 
@@ -283,7 +283,7 @@ gog-lite calendar create --account you@gmail.com \
 
 # イベントの更新・削除
 gog-lite calendar update --account you@gmail.com --event-id EVENT_ID --title "新しいタイトル"
-gog-lite calendar delete --account you@gmail.com --event-id EVENT_ID --confirm-delete --approval-token TOKEN
+gog-lite calendar delete --account you@gmail.com --event-id EVENT_ID --confirm-delete --approval-token-file /path/to/token-file
 ```
 
 > 時刻は RFC3339 形式でタイムゾーン必須：`2026-03-01T10:00:00Z` または `2026-03-01T10:00:00+09:00`
@@ -301,13 +301,13 @@ gog-lite docs create --account you@gmail.com --title "新しいドキュメン�
 # 内容の書き込み（--replace で全置換。--dry-run では確認フラグと承認トークンは不要）
 gog-lite --dry-run docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace
 
-gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token TOKEN
+gog-lite docs write --account you@gmail.com --doc-id DOC_ID --content "新しい内容" --replace --confirm-replace --approval-token-file /path/to/token-file
 
 # エクスポート
 gog-lite docs export --account you@gmail.com --doc-id DOC_ID --format pdf --output ~/Downloads/doc.pdf --overwrite
 
 # テキスト置換
-gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token TOKEN
+gog-lite docs find-replace --account you@gmail.com --doc-id DOC_ID --find "旧文言" --replace "新文言" --confirm-find-replace --approval-token-file /path/to/token-file
 ```
 
 ### Google Sheets

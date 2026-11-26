@@ -47,7 +47,7 @@ func (c *GmailSearchCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -100,7 +100,7 @@ func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -110,7 +110,9 @@ func (c *GmailGetCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return writeGoogleAPIError("get_error", err)
 	}
 
-	return output.WriteJSON(os.Stdout, msg)
+	return output.WriteJSONWithExtras(os.Stdout, msg, map[string]any{
+		"account": normalizeEmail(c.Account),
+	})
 }
 
 // GmailSendCmd saves an email as a Gmail draft.
@@ -177,25 +179,21 @@ func (c *GmailSendCmd) Run(ctx context.Context, root *RootFlags) error {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
 
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "gmail.draft",
-			"params": map[string]any{
-				"account":     c.Account,
-				"to":          c.To,
-				"cc":          c.CC,
-				"bcc":         c.BCC,
-				"subject":     c.Subject,
-				"body_length": len(body),
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("gmail.draft", map[string]any{
+			"account":     c.Account,
+			"to":          c.To,
+			"cc":          c.CC,
+			"bcc":         c.BCC,
+			"subject":     c.Subject,
+			"body_length": len(body),
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	if err := enforceRateLimit("gmail.send", 20, time.Minute); err != nil {
 		return output.WriteError(output.ExitCodeError, "rate_limited", err.Error())
 	}
 
-	svc, err := googleapi.NewGmailWrite(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailWriteService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -278,7 +276,7 @@ func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}
@@ -288,7 +286,9 @@ func (c *GmailThreadCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return writeGoogleAPIError("thread_error", err)
 	}
 
-	return output.WriteJSON(os.Stdout, thread)
+	return output.WriteJSONWithExtras(os.Stdout, thread, map[string]any{
+		"account": normalizeEmail(c.Account),
+	})
 }
 
 // GmailLabelsCmd lists Gmail labels.
@@ -301,7 +301,7 @@ func (c *GmailLabelsCmd) Run(ctx context.Context, _ *RootFlags) error {
 		return output.WriteError(output.ExitCodePermission, "policy_denied", err.Error())
 	}
 
-	svc, err := googleapi.NewGmailReadOnly(ctx, c.Account)
+	svc, err := currentCommandDeps().newGmailReadOnlyService(ctx, c.Account)
 	if err != nil {
 		return gmailAuthError(err)
 	}

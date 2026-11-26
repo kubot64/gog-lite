@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // PolicyFile stores execution constraints for AI-agent operations.
@@ -18,6 +19,8 @@ type PolicyFile struct {
 	RequireApprovalActions []string `json:"require_approval_actions,omitempty"`
 	ExemptApprovalActions  []string `json:"exempt_approval_actions,omitempty"`
 }
+
+var policyMu sync.Mutex
 
 func PolicyPath() (string, error) {
 	dir, err := Dir()
@@ -77,6 +80,22 @@ func WritePolicy(p PolicyFile) error {
 	}
 
 	return nil
+}
+
+func UpdatePolicy(update func(*PolicyFile) error) error {
+	policyMu.Lock()
+	defer policyMu.Unlock()
+
+	p, err := ReadPolicy()
+	if err != nil {
+		return err
+	}
+
+	if err := update(&p); err != nil {
+		return err
+	}
+
+	return WritePolicy(p)
 }
 
 func (p *PolicyFile) normalize() {

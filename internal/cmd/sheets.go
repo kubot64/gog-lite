@@ -160,17 +160,13 @@ func (c *SheetsUpdateCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "sheets.update",
-			"params": map[string]any{
-				"account":        c.Account,
-				"spreadsheet_id": c.SpreadsheetID,
-				"range":          c.Range,
-				"row_count":      len(values),
-				"value_input":    valueInput,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("sheets.update", map[string]any{
+			"account":        c.Account,
+			"spreadsheet_id": c.SpreadsheetID,
+			"range":          c.Range,
+			"row_count":      len(values),
+			"value_input":    valueInput,
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	if err := enforceWriteRateLimit("sheets.update"); err != nil {
@@ -260,17 +256,13 @@ func (c *SheetsAppendCmd) Run(ctx context.Context, root *RootFlags) error {
 		}); err != nil {
 			return output.WriteError(output.ExitCodeError, "audit_error", err.Error())
 		}
-		return output.WriteJSON(os.Stdout, map[string]any{
-			"dry_run": true,
-			"action":  "sheets.append",
-			"params": map[string]any{
-				"account":        c.Account,
-				"spreadsheet_id": c.SpreadsheetID,
-				"range":          c.Range,
-				"row_count":      len(values),
-				"value_input":    valueInput,
-			},
-		})
+		return output.WriteJSON(os.Stdout, newDryRunPayload("sheets.append", map[string]any{
+			"account":        c.Account,
+			"spreadsheet_id": c.SpreadsheetID,
+			"range":          c.Range,
+			"row_count":      len(values),
+			"value_input":    valueInput,
+		}, dryRunPayloadOptions{WouldCallAPI: true}))
 	}
 
 	if err := enforceWriteRateLimit("sheets.append"); err != nil {
